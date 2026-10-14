@@ -319,3 +319,27 @@ func TestWatchEmitsAddedThenRemoved(t *testing.T) {
 	for range ch { // drains and must close
 	}
 }
+
+func TestTrackerWatchesOneEndpointPerProcess(t *testing.T) {
+	tr := newTracker(2)
+	native := Endpoint{URL: "http://127.0.0.1:4096", PID: 7}
+	bridge := Endpoint{URL: "http://127.0.0.1:46571", PID: 7}
+	bridge2 := Endpoint{URL: "http://127.0.0.1:3000", PID: 7} // sorts first, appears later
+	other := Endpoint{URL: "http://127.0.0.1:5000", PID: 8}
+
+	got := tr.update([]Endpoint{bridge, native, other})
+	if len(got) != 2 || got[0].Endpoint.URL != native.URL && got[1].Endpoint.URL != native.URL {
+		t.Fatalf("want one endpoint for pid 7 (lowest URL) and one for pid 8, got %+v", got)
+	}
+	// A new port of the same process sorting earlier must not steal it.
+	if got := tr.update([]Endpoint{bridge2, bridge, native, other}); len(got) != 0 {
+		t.Errorf("extra port caused changes: %+v", got)
+	}
+	// The watched port closes: switch to a remaining one; drop the old after the debounce.
+	if got := tr.update([]Endpoint{bridge2, bridge, other}); len(got) != 1 || got[0].Kind != Added || got[0].Endpoint.URL != bridge2.URL {
+		t.Errorf("switch: %+v", got)
+	}
+	if got := tr.update([]Endpoint{bridge2, bridge, other}); len(got) != 1 || got[0].Kind != Removed || got[0].Endpoint.URL != native.URL {
+		t.Errorf("old endpoint removal: %+v", got)
+	}
+}

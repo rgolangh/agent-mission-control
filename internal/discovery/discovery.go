@@ -264,7 +264,7 @@ func newTracker(missesToDrop int) *tracker {
 func (t *tracker) update(found []Endpoint) []Change {
 	var changes []Change
 	present := map[string]bool{}
-	for _, ep := range found {
+	for _, ep := range t.onePerProcess(found) {
 		k := ep.Key()
 		present[k] = true
 		if cur, ok := t.known[k]; ok {
@@ -289,6 +289,40 @@ func (t *tracker) update(found []Endpoint) []Change {
 		delete(t.known, k)
 	}
 	return changes
+}
+
+// onePerProcess keeps one endpoint per OpenCode process. A process can
+// listen on several ports (its own --port plus the mission-control bridge
+// plugin, which OpenCode may even load twice), and every one of them serves
+// the same sessions: watching more than one would double every event and
+// make the workflows' origin flap. The endpoint already being watched wins,
+// so a port that appears later causes no reconnect; otherwise the lowest
+// URL, for determinism. (If the watched port closes while the process lives,
+// another is picked at once and the old one is removed after the usual
+// debounce, so both are briefly watched.)
+func (t *tracker) onePerProcess(found []Endpoint) []Endpoint {
+	byPID := map[int][]Endpoint{}
+	var pids []int
+	for _, ep := range found {
+		if _, ok := byPID[ep.PID]; !ok {
+			pids = append(pids, ep.PID)
+		}
+		byPID[ep.PID] = append(byPID[ep.PID], ep)
+	}
+	out := make([]Endpoint, 0, len(pids))
+	for _, pid := range pids {
+		eps := byPID[pid]
+		sort.Slice(eps, func(i, j int) bool { return eps[i].URL < eps[j].URL })
+		pick := eps[0]
+		for _, ep := range eps {
+			if _, ok := t.known[ep.Key()]; ok {
+				pick = ep
+				break
+			}
+		}
+		out = append(out, pick)
+	}
+	return out
 }
 
 // Canonical reduces a server URL to a comparable key so that
