@@ -43,8 +43,9 @@ func answer(text string) string {
 
 // Hook payloads as captured from Claude Code 2.1.296 (trimmed).
 func TestNormalizeLifecycle(t *testing.T) {
-	a := New()
 	tp := writeTranscript(t, `{"type":"ai-title","aiTitle":"List files","sessionId":"s1"}`, prompt, toolUse, toolOK, answer("There are 2 entries."))
+	a := New()
+	a.ProjectsDirs = []string{filepath.Dir(tp)}
 	steps := []struct {
 		js     string
 		ok     bool
@@ -83,8 +84,9 @@ func TestNormalizeLifecycle(t *testing.T) {
 
 // Seen live: Stop runs before the final message reaches the transcript.
 func TestStopTextWinsOverUnflushedTranscript(t *testing.T) {
-	a := New()
 	tp := writeTranscript(t, prompt, toolUse, toolOK) // final answer not written yet
+	a := New()
+	a.ProjectsDirs = []string{filepath.Dir(tp)}
 	a.Normalize(hook(t, `{"session_id":"s4","transcript_path":"`+tp+`","hook_event_name":"UserPromptSubmit","prompt":"x"}`))
 	a.Normalize(hook(t, `{"session_id":"s4","transcript_path":"`+tp+`","hook_event_name":"Stop","last_assistant_message":"Go or Rust?"}`))
 	turn, err := a.LastTurn(context.Background(), "s4")
@@ -190,5 +192,71 @@ func TestReadTailDropsPartialLine(t *testing.T) {
 	es, err := readTail(p, 200) // the last line fits, the first only partly
 	if err != nil || len(es) != 1 || es[0].text() != "end" {
 		t.Errorf("tail = %d entries, err %v", len(es), err)
+	}
+}
+
+// Security: transcript_path comes from the (forgeable) hook payload.
+func TestTranscriptPathMustBeInsideProjectsDir(t *testing.T) {
+	projects := t.TempDir()
+	inside := filepath.Join(projects, "-home-x", "s.jsonl")
+	os.MkdirAll(filepath.Dir(inside), 0o700)
+	os.WriteFile(inside, []byte(answer("ok")+"\n"), 0o600)
+	outside := writeTranscript(t, answer("SECRET"))
+	link := filepath.Join(projects, "link.jsonl")
+	os.Symlink(outside, link)
+	notJSONL := filepath.Join(projects, "notes.txt")
+	os.WriteFile(notJSONL, []byte("x"), 0o600)
+
+	a := New()
+	a.ProjectsDirs = []string{projects}
+	for _, c := range []struct {
+		path string
+		ok   bool
+	}{
+		{inside, true},
+		{outside, false},
+		{filepath.Join(projects, "..", filepath.Base(filepath.Dir(outside)), "s.jsonl"), false},
+		{link, false}, // symlink inside pointing outside
+		{notJSONL, false},
+		{"relative/s.jsonl", false},
+	} {
+		if _, ok := a.transcriptPath(c.path); ok != c.ok {
+			t.Errorf("%s: accepted=%v, want %v", c.path, ok, c.ok)
+		}
+	}
+	a.Normalize(hook(t, `{"session_id":"x","hook_event_name":"Stop","transcript_path":"`+outside+`"}`))
+	if _, err := a.LastTurn(context.Background(), "x"); err == nil {
+		t.Error("a rejected transcript_path must not be read")
+	}
+}
+
+func TestMinimizeDropsContent(t *testing.T) {
+	big := strings.Repeat("y", 20000)
+	in := map[string]any{
+		"session_id": "s", "hook_event_name": "PostToolUse", "tool_name": "Write", "cwd": "/w",
+		"tool_input":             map[string]any{"file_path": "/w/a.go", "content": "SECRET FILE BODY"},
+		"tool_response":          map[string]any{"stdout": "SECRET OUTPUT"},
+		"prompt":                 strings.Repeat("p", 1000),
+		"last_assistant_message": "FIRST LINE\n" + big + "\nWhich one?",
+		"unknown_future_field":   "x",
+	}
+	out := Minimize(in)
+	b, _ := json.Marshal(out)
+	js := string(b)
+	for _, leak := range []string{"SECRET FILE BODY", "SECRET OUTPUT", "tool_response", "unknown_future_field"} {
+		if strings.Contains(js, leak) {
+			t.Errorf("minimized payload still contains %q", leak)
+		}
+	}
+	if !strings.Contains(js, "/w/a.go") || len(out["prompt"].(string)) != maxPromptBytes {
+		t.Errorf("kept fields wrong: %s", js[:200])
+	}
+	last := out["last_assistant_message"].(string)
+	if !strings.HasPrefix(last, "FIRST LINE") || !strings.HasSuffix(last, "Which one?") || len(last) > maxFinalHead+maxFinalTail+8 {
+		t.Errorf("final message should keep head and tail, len %d", len(last))
+	}
+	q := Minimize(map[string]any{"tool_name": "AskUserQuestion", "tool_input": map[string]any{"questions": []any{"q"}}})
+	if q["tool_input"].(map[string]any)["questions"] == nil {
+		t.Error("AskUserQuestion input must survive")
 	}
 }

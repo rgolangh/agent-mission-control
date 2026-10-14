@@ -91,3 +91,29 @@ func TestMCPToolsAgainstDaemon(t *testing.T) {
 		t.Error("unknown id must error")
 	}
 }
+
+func TestMCPPermissionsNeedTheirOwnToolAndNeverAlways(t *testing.T) {
+	store := daemon.NewStore()
+	r := &confirmingResponder{store: store}
+	store.Apply(adapter.SourceEvent{Adapter: "opencode", SourceID: "ses_perm0001", Status: adapter.StatusNeedsInput,
+		Message: "waiting on approval", Timestamp: time.Now(), Capabilities: adapter.Capabilities{CanReceiveInput: true},
+		Ask: &adapter.Ask{ID: "per_1", Kind: adapter.AskKindPermission, Questions: []adapter.AskQuestion{{Question: "Allow bash [rm -rf build]?", Options: []string{"once", "always", "reject"}}}}})
+	store.Bind("opencode:ses_perm0001", r, "test")
+	srv := httptest.NewServer(daemon.Handler(store))
+	defer srv.Close()
+	tools := mcpTools(srv.URL)
+
+	if _, err := call(t, tools, "answer_workflow", `{"id":"perm0001","choice":"once"}`); err == nil || !strings.Contains(err.Error(), "resolve_permission") {
+		t.Errorf("answer_workflow must refuse a permission request, got %v", err)
+	}
+	if _, err := call(t, tools, "resolve_permission", `{"id":"perm0001","decision":"always"}`); err == nil {
+		t.Error(`"always" must not be accepted over MCP`)
+	}
+	out, err := call(t, tools, "list_workflows", `{}`)
+	if err != nil || !strings.Contains(out, `"notice"`) {
+		t.Errorf("agent text must come with the untrusted-content notice: %v %s", err, out)
+	}
+	if out, err = call(t, tools, "resolve_permission", `{"id":"perm0001","decision":"once"}`); err != nil || !strings.Contains(out, `"once"`) {
+		t.Fatalf("resolve once: %v %s", err, out)
+	}
+}

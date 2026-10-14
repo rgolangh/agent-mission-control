@@ -1,7 +1,9 @@
 # mission-control for Claude Code
 
 A Claude Code plugin with no logic in it: each hook runs `mission-control hook
-claude-code`, which posts the hook's payload to the mission-control daemon and
+claude-code`, which strips the hook's payload to the few fields
+mission-control needs (no file contents, no command output, prompts cut to a
+title) and posts it to the daemon's per-user Unix socket. It
 exits 0 without printing anything, so it can never block or steer Claude. If
 the daemon isn't running, the hook returns at once (400ms timeout at most). The daemon
 (`internal/claudecode`) does the rest: state per session, the question

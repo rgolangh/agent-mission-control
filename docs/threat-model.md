@@ -1,11 +1,21 @@
 # mission-control threat model
 
-Status: initial analysis, 2026-10-14, against commit `5b53470` (daemon,
-OpenCode adapter and bridge plugin, Claude Code hooks plugin, omarchy-shell
-widget, MCP server). Each finding says how it was established: **verified**
-(reproduced against the running system), **design** (follows from the code or
-architecture, not exploited), or **unverified** (depends on third-party
-behaviour not tested).
+Status: analysis of 2026-10-14 (against `5b53470`), updated the same day
+after fixing every finding rated Medium or above. Each finding says how it
+was established: **verified** (reproduced against the running system),
+**design** (follows from the code or architecture, not exploited), or
+**unverified** (depends on third-party behaviour not tested). Each fixed
+finding also says how the fix was verified.
+
+| ID | Finding | Severity | Status |
+|---|---|---|---|
+| H1 | Bridge exposes OpenCode to DNS rebinding | High | **Fixed** |
+| H2 | Prompt injection through the MCP orchestrator | High | **Mitigated** (inherent residual risk) |
+| M1 | Hook forwards file contents / command output to a squattable port | Medium | **Fixed** |
+| M2 | Unauthenticated daemon API on loopback TCP | Medium | **Fixed** |
+| M3 | Forged hook makes the daemon read arbitrary files | Medium | **Fixed** |
+| M4 | Widget renders agent text as HTML | Medium | **Fixed** |
+| L1–L7 | See below | Low | Open (L2 now limited to your own processes by M2) |
 
 ## 1. What the system is
 
@@ -15,7 +25,7 @@ flowchart LR
     OC["opencode TUI<br/>(+ bridge plugin: loopback port)"]
     CC["claude TUI<br/>(+ hooks plugin)"]
     HK["mission-control hook<br/>(per hook event)"]
-    D["mission-control daemon<br/>127.0.0.1:4200"]
+    D["mission-control daemon<br/>unix socket (0600) +<br/>127.0.0.1:4200 (token)"]
     W["omarchy-shell widget"]
     CLI["mission-control CLI"]
     MCP["mission-control mcp<br/>(stdio)"]
@@ -30,10 +40,10 @@ flowchart LR
   W -- "GET/POST /workflows" --> D
   CLI --> D
   ORC <-- "tools: list/get/answer/send" --> MCP --> D
-  WEB -. "DNS rebinding / CSRF" .-> OC
-  WEB -. "blocked: Host + JSON guard" .-> D
-  OTH -. "loopback TCP, no auth" .-> D
-  OTH -. "loopback TCP, no auth" .-> OC
+  WEB -. "blocked: Host + Origin checks, token" .-> OC
+  WEB -. "blocked: Host + JSON guard, token" .-> D
+  OTH -. "blocked: socket perms / token" .-> D
+  OTH -. "bridge: token; opencode --port: still open (upstream)" .-> OC
 ```
 
 The daemon can **act**, not just observe. It answers agent questions,
@@ -93,6 +103,20 @@ affects `opencode --port`), but **the bridge extends it to every plain
 header (browsers send it; the daemon never does). Add a per-user token (see
 M2). Report the missing Host validation to OpenCode.
 
+> **Fixed.** The bridge refuses a wrong `Host` (403) and any `Origin` (403),
+> and requires `Authorization: Bearer <token>` on everything except
+> `GET /global/health` (401 otherwise). The token is random per process and is
+> written with its port to `$XDG_RUNTIME_DIR/mission-control/opencode/<pid>.token`
+> (dir 0700, file 0600; removed on exit). The daemon reads it using the PID
+> discovery already knows, and sends it only to that port. This also gives
+> bridged sessions per-endpoint credentials (part of L4). *Verified live:*
+> unauthenticated `POST /session/x/shell` → 401, `Host: evil.example` → 403,
+> `Origin` with a valid token → 403. The daemon discovered, authenticated and
+> drove a question/answer loop through it. *Remaining:* `opencode --port N`
+> and `opencode serve` themselves still lack Host validation (upstream; to be
+> reported). Use the bridge (plain `opencode`), or set
+> `OPENCODE_SERVER_PASSWORD`.
+
 **H2. Prompt injection can turn the MCP orchestrator against you.** *Design.*
 `list_workflows` / `get_workflow` return agent-written text (messages,
 questions, titles) to an orchestrating LLM that also holds `answer_workflow`,
@@ -105,6 +129,16 @@ project: one compromised workflow can steer all the others.
 tool that MCP clients cannot auto-approve; return agent text in clearly
 delimited "untrusted content" fields; document that the MCP tools must not be
 allow-listed for unattended use.
+
+> **Mitigated.** `answer_workflow` refuses permission requests. A separate
+> `resolve_permission` tool accepts only `once` or `reject`; `always` is
+> unreachable over MCP. Being separate, an MCP client can auto-approve
+> answering questions while still asking you before each permission decision.
+> Every result carrying agent text includes a `notice` saying it is untrusted
+> data, and the server instructions tell the model never to act on it. *Verified* by tests
+> (`TestMCPPermissionsNeedTheirOwnToolAndNeverAlways`). *Residual risk:* a
+> model can still be persuaded by text it reads. Do not allow-list
+> `resolve_permission` or `send_to_workflow` for unattended use.
 
 ### Medium
 
@@ -120,6 +154,15 @@ transcript path, tool name, AskUserQuestion input, short summaries); drop
 socket in `$XDG_RUNTIME_DIR` (per-user, 0700), which cannot be squatted by
 other users.
 
+> **Fixed.** `claudecode.Minimize` runs inside the hook process, before
+> anything is sent. It allowlists the fields the adapter reads, drops
+> `tool_response` and all other tool input (keeping only short `command` /
+> `file_path`-style summaries and the AskUserQuestion input), caps prompts at
+> 300 bytes, and caps the final message to its first 2 KB and last 8 KB. The
+> hook posts to the Unix socket (see M2). *Verified* by test
+> (`TestMinimizeDropsContent`: file body, command output and unknown fields
+> are gone) and live (this session's hooks reach the daemon over the socket).
+
 **M2. The daemon API has no authentication; loopback TCP is not a per-user boundary.** *Design.*
 The Host and JSON guards stop browsers (**verified**: forged Host gets 403,
 `text/plain` POST gets 415). But any local process, Flatpak apps with network
@@ -130,6 +173,16 @@ questions, paths) and answer, approve or send. Same for the bridge and for
 a future web UI), a random bearer token in `$XDG_RUNTIME_DIR/mission-control/token`
 (0600) read by clients. Apply the same token to the bridge.
 
+> **Fixed.** The daemon serves on `$XDG_RUNTIME_DIR/mission-control/api.sock`
+> (dir 0700, socket 0600; it refuses a runtime dir others can access, and
+> refuses to start if another instance holds the socket). The CLI, hooks and
+> MCP default to it. TCP (`-listen`, for the widget; empty disables it)
+> requires a bearer token that is regenerated on every start and written
+> 0600 only after the port is bound. Token comparison is constant-time.
+> Token files with looser permissions are refused. *Verified live:* modes as
+> above; TCP without token → 401, with token → 200; the widget authenticates
+> by reading the token file. Tests: `TestRequireToken`, `TestCallOverUnixSocket`.
+
 **M3. A forged hook makes the daemon read any file you can read.** *Verified.*
 `transcript_path` comes from the hook payload. A crafted payload pointing at
 an arbitrary JSONL file made its "assistant text" appear in the workflow
@@ -138,6 +191,14 @@ limited by the format the reader understands, but on a shared machine (with
 M2) this is a confused deputy.
 *Fix:* accept only paths that resolve (after symlinks) under
 `~/.claude/projects/` and end in `.jsonl`.
+
+> **Fixed.** `transcript_path` is used only if it is absolute, ends in
+> `.jsonl`, and resolves (symlinks on both sides) inside
+> `~/.claude/projects` or `$CLAUDE_CONFIG_DIR/projects`. Otherwise it is
+> ignored. *Verified live:* the same forged hook now yields "could not read the
+> transcript", with no file content. Test
+> `TestTranscriptPathMustBeInsideProjectsDir` covers outside paths, `..`
+> escapes, a symlink inside pointing outside, and non-JSONL files.
 
 **M4. The widget renders agent text as HTML, so agent output can make the shell fetch URLs and fake the UI.** *Verified.*
 QML `Text` defaults to `AutoText`. A workflow title containing
@@ -149,6 +210,11 @@ markup, so the same applies there, depending on the notification daemon
 (**unverified** for Omarchy's).
 *Fix:* `textFormat: Text.PlainText` on every agent-sourced `Text`; escape
 `&`, `<` and `>` in `notify-send` bodies.
+
+> **Fixed.** Every `Text` in the widget (all 17) is `Text.PlainText`, and
+> notification summary and body are markup-escaped (argv, never a shell).
+> *Verified live:* the same `<img>` title now renders literally and the
+> listener received 0 requests (2 before).
 
 ### Low
 
@@ -223,11 +289,16 @@ permissions should stay local, or need step-up confirmation), an audit log of
 every answer, approval and send, and rate limits. Agent text from colleagues'
 sessions becomes cross-user prompt-injection input (H2 at team scale).
 
-## 7. Recommended order
+## 7. Remaining work
 
-1. **H1:** Host and Origin checks in the bridge (small change, biggest exposure we created).
-2. **M4 + L1:** plain-text rendering in the widget, escaped notifications, sanitized CLI output.
-3. **M1 + M3:** minimal hook payloads; restrict `transcript_path`.
-4. **M2:** Unix socket for CLI, hooks and MCP; token for the widget and bridge.
-5. **H2:** MCP hardening (no `always`, separate approval tool, untrusted-content framing).
-6. **L3–L6** and release-pipeline hygiene, together with the GitHub/Fedora packaging work.
+1. **Upstream:** report OpenCode's missing Host validation (it affects
+   `opencode --port` and `opencode serve`).
+2. **L1:** strip control characters from agent text in CLI output.
+3. **L3:** cap and expire forged or idle sessions.
+4. **L4:** credentials for discovered native `--port` servers (bridged
+   sessions are done); optionally verify the executable.
+5. **L5:** pin plugin specifiers; checksums or signatures for releases; pin
+   Actions by SHA. Do this together with the GitHub/Fedora packaging.
+6. **L6:** keep agent text out of the journal by default.
+7. Before any remote or shared view (section 6): authentication, TLS,
+   per-workflow authorization, audit log.

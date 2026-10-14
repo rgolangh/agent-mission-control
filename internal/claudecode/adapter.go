@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -55,20 +57,57 @@ type Hook struct {
 }
 
 type session struct {
-	transcript string
-	lastText   string // from this turn's Stop hook; "" until it fires
-	pid        int
-	titled     bool // has a real (ai-title) title; prompts no longer rename it
-	prompted   bool
+	transcript   string
+	lastText     string // from this turn's Stop hook; "" until it fires
+	pid          int
+	titled       bool // has a real (ai-title) title; prompts no longer rename it
+	titleChecked bool // the transcript was searched for a title at least once
+	prompted     bool
 }
 
 // Adapter keeps what it has learned about each session between hooks.
 type Adapter struct {
 	mu       sync.Mutex
 	sessions map[string]*session
+	// ProjectsDirs are where Claude Code keeps transcripts. A hook's
+	// transcript_path is only read if it resolves inside one of them: the
+	// path comes from the payload, and must not let a forged hook make the
+	// daemon read arbitrary files.
+	ProjectsDirs []string
 }
 
-func New() *Adapter { return &Adapter{sessions: map[string]*session{}} }
+func New() *Adapter {
+	var dirs []string
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		dirs = append(dirs, filepath.Join(d, "projects"))
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".claude", "projects"))
+	}
+	return &Adapter{sessions: map[string]*session{}, ProjectsDirs: dirs}
+}
+
+// transcriptPath returns the resolved path if p is a .jsonl file inside one
+// of ProjectsDirs (after resolving symlinks on both sides).
+func (a *Adapter) transcriptPath(p string) (string, bool) {
+	if !filepath.IsAbs(p) || filepath.Ext(p) != ".jsonl" {
+		return "", false
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", false
+	}
+	for _, d := range a.ProjectsDirs {
+		root, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			continue
+		}
+		if rel, err := filepath.Rel(root, real); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			return real, true
+		}
+	}
+	return "", false
+}
 
 var _ adapter.TurnReader = (*Adapter)(nil)
 
@@ -91,7 +130,9 @@ func (a *Adapter) Normalize(h Hook) (adapter.SourceEvent, bool) {
 	defer a.mu.Unlock()
 	s := a.get(h.SessionID)
 	if h.TranscriptPath != "" {
-		s.transcript = h.TranscriptPath
+		if p, ok := a.transcriptPath(h.TranscriptPath); ok {
+			s.transcript = p
+		}
 	}
 	if h.AgentPID > 0 {
 		s.pid = h.AgentPID
@@ -107,7 +148,10 @@ func (a *Adapter) Normalize(h Hook) (adapter.SourceEvent, bool) {
 	// Claude Code writes generated titles (ai-title) into the transcript and
 	// refines them; reread at the few points where one may have appeared,
 	// never on every tool call.
-	if h.Event == "Stop" || h.Event == "UserPromptSubmit" || h.Event == "SessionStart" {
+	// Also on the first hook seen for a session, so sessions that were
+	// already running when the daemon (re)started get their title.
+	if !s.titleChecked || h.Event == "Stop" || h.Event == "UserPromptSubmit" || h.Event == "SessionStart" {
+		s.titleChecked = true
 		if t := aiTitle(s.transcript); t != "" {
 			ev.Title, s.titled = t, true
 		}

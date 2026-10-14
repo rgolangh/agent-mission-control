@@ -37,13 +37,23 @@ Item {
   readonly property alias panelCard: card
 
   function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
+  function escapeMarkup(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }
   function open() { opened = true }
   function close() { opened = false }
   function toggle() { opened = !opened }
 
+  // The daemon writes a fresh token on every start; only this user can read it.
+  FileView {
+    id: tokenFile
+    path: (Quickshell.env("XDG_RUNTIME_DIR") || "") + "/mission-control/token"
+    watchChanges: true
+    onFileChanged: reload()
+  }
+
   Api {
     id: api
     baseUrl: root.setting("apiUrl", "http://127.0.0.1:4200")
+    token: tokenFile.loaded ? tokenFile.text().trim() : ""
     // Snappier while you are looking at it.
     interval: root.opened ? 1000 : root.setting("pollIntervalMs", 2000)
     onNeedsYou: function(workflow) {
@@ -53,9 +63,10 @@ Item {
       var body = ask && ask.questions && ask.questions.length ? ask.questions[0].question : workflow.message
       var heading = { needs_input: "Agent needs you", stuck: "Agent is stuck", failed: "Agent failed" }[workflow.status]
       var icon = workflow.status === "needs_input" ? "dialog-question" : "dialog-warning"
-      // argv, not a shell string: titles and questions come from agents.
+      // argv, not a shell string, and markup escaped: titles and questions
+      // come from agents, and notification bodies may be rendered as markup.
       Quickshell.execDetached(["notify-send", "-a", "Mission control", "-i", icon,
-        heading + ": " + title, String(body || "")])
+        root.escapeMarkup(heading + ": " + title), root.escapeMarkup(String(body || ""))])
     }
   }
 
@@ -184,6 +195,7 @@ Item {
     spacing: 4
 
     Text {
+      textFormat: Text.PlainText // agent text: never HTML
       id: icon
       anchors.verticalCenter: parent.verticalCenter
       text: "󰚚" // nf-md-robot_outline
@@ -201,6 +213,7 @@ Item {
     }
 
     Text {
+      textFormat: Text.PlainText // agent text: never HTML
       anchors.verticalCenter: parent.verticalCenter
       visible: text !== ""
       // What needs you; otherwise how many are busy.
@@ -293,6 +306,7 @@ Item {
         spacing: 2
 
         Text {
+          textFormat: Text.PlainText // agent text: never HTML
           text: "Mission control"
           color: root.fg
           font.family: root.fontFamily
@@ -300,6 +314,7 @@ Item {
           font.bold: true
         }
         Text {
+          textFormat: Text.PlainText // agent text: never HTML
           width: parent.width
           text: root.summary
           color: api.reachable ? root.dim : root.urgent
@@ -327,6 +342,7 @@ Item {
           spacing: 8
 
           Text {
+            textFormat: Text.PlainText // agent text: never HTML
             visible: api.reachable && api.workflows.length === 0
             width: parent.width
             text: "No workflows yet. Start an agent with `opencode --port N` and `mission-control serve -discover`."
@@ -337,6 +353,7 @@ Item {
           }
 
           Text {
+            textFormat: Text.PlainText // agent text: never HTML
             visible: api.loaded && !api.reachable
             width: parent.width
             text: "Start the daemon: mission-control serve -discover\n(looking for it at " + api.baseUrl + ")"
@@ -376,6 +393,7 @@ Item {
     border.width: 1
 
     Text {
+      textFormat: Text.PlainText // agent text: never HTML
       id: chipText
       anchors.centerIn: parent
       text: chip.label
@@ -417,6 +435,7 @@ Item {
       Keys.onEscapePressed: root.close()
 
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         visible: !input.text && !input.activeFocus
         text: line.placeholder
         color: root.dim
@@ -476,6 +495,7 @@ Item {
         implicitHeight: Math.max(titleText.implicitHeight, termChip.implicitHeight)
 
         Text {
+          textFormat: Text.PlainText // agent text: never HTML
           id: glyph
           anchors.verticalCenter: parent.verticalCenter
           text: root.statusGlyph(wcard.workflow.status)
@@ -484,6 +504,7 @@ Item {
           font.pixelSize: 13
         }
         Text {
+          textFormat: Text.PlainText // agent text: never HTML
           id: titleText
           anchors.left: glyph.right
           anchors.leftMargin: 8
@@ -508,6 +529,7 @@ Item {
           onActivated: root.focusTerminal(wcard.workflow.pids)
         }
         Text {
+          textFormat: Text.PlainText // agent text: never HTML
           id: ageText
           anchors.right: parent.right
           anchors.verticalCenter: parent.verticalCenter
@@ -519,6 +541,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: text !== ""
         text: root.tilde(wcard.workflow.location)
@@ -529,6 +552,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: !wcard.question && text !== ""
         text: wcard.workflow.stale ? (wcard.workflow.stale_reason || "source unreachable") : (wcard.workflow.message || "")
@@ -542,6 +566,7 @@ Item {
 
       // ---- waiting on you
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: !!wcard.question
         text: wcard.question ? ((wcard.question.header ? wcard.question.header + ": " : "") + wcard.question.question) : ""
@@ -577,6 +602,7 @@ Item {
 
       // Observe-only sources (Claude Code): show the choices, answer there.
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: !wcard.canInput && !wcard.workflow.stale && (!!wcard.question || wcard.workflow.status === "needs_input")
         text: (wcard.question && wcard.question.options && wcard.question.options.length
@@ -596,6 +622,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: !!wcard.ask && !wcard.question
         text: "This ask has several questions; answer it with `mission-control show " + String(wcard.workflow.source_id).slice(-8) + "`."
@@ -620,6 +647,7 @@ Item {
       }
 
       Text {
+        textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
         visible: wcard.feedback !== ""
         text: wcard.feedback

@@ -8,7 +8,10 @@ a finished or stuck agent a follow-up. A desktop notification fires when an
 agent starts needing you.
 
 It is a client of the mission-control daemon's HTTP API, so the daemon must be
-running (`mission-control serve -discover`). It polls `GET /workflows` (every
+running (`mission-control serve -discover`). The daemon's TCP port requires a
+bearer token, which the widget reads from
+`$XDG_RUNTIME_DIR/mission-control/token` (regenerated on each daemon start;
+the widget notices). Agent text is always rendered as plain text, never HTML. It polls `GET /workflows` (every
 2s; every 1s while the panel is open). Answering never changes what the widget
 shows by itself: the next poll shows what the agent actually did.
 

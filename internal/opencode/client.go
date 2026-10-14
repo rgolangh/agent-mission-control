@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,7 +19,12 @@ type Client struct {
 	BaseURL  string // e.g. "http://localhost:4096"
 	Username string // defaults to "opencode" server-side if a password is set
 	Password string // OPENCODE_SERVER_PASSWORD, empty if server has no auth
-	HTTP     *http.Client
+	Token    string // bearer token of a mission-control bridge port (see integrations/opencode)
+	// TokenFunc, if set, supplies Token lazily: it is called until it
+	// returns one (a bridge writes its token file just after opening its port).
+	TokenFunc func() string
+	tokenMu   sync.Mutex
+	HTTP      *http.Client
 }
 
 func New(baseURL string) *Client {
@@ -30,7 +36,15 @@ func New(baseURL string) *Client {
 }
 
 func (c *Client) authenticate(req *http.Request) {
-	if c.Password != "" {
+	c.tokenMu.Lock()
+	if c.Token == "" && c.TokenFunc != nil {
+		c.Token = c.TokenFunc()
+	}
+	token := c.Token
+	c.tokenMu.Unlock()
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if c.Password != "" {
 		req.SetBasicAuth(c.Username, c.Password)
 	}
 }

@@ -21,7 +21,7 @@ func parseFlags(fs *flag.FlagSet, args []string) []string {
 
 func show(args []string) error {
 	fs := flag.NewFlagSet("show", flag.ExitOnError)
-	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
+	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON")
 	pos := parseFlags(fs, args)
 	if len(pos) != 1 {
@@ -84,7 +84,7 @@ func show(args []string) error {
 
 func answer(args []string) error {
 	fs := flag.NewFlagSet("answer", flag.ExitOnError)
-	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
+	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	askID := fs.String("ask", "", "ask ID, only needed when several asks are pending")
 	pos := parseFlags(fs, args)
 	if len(pos) < 2 {
@@ -111,7 +111,7 @@ func answer(args []string) error {
 
 func send(args []string) error {
 	fs := flag.NewFlagSet("send", flag.ExitOnError)
-	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
+	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	pos := parseFlags(fs, args)
 	if len(pos) < 2 {
 		return fmt.Errorf("usage: mission-control send [-addr URL] <id> <text...>")

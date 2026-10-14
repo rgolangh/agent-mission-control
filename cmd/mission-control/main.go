@@ -15,10 +15,13 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -32,6 +35,7 @@ import (
 	"mission-control/internal/daemon"
 	"mission-control/internal/discovery"
 	"mission-control/internal/opencode"
+	"mission-control/internal/paths"
 	"mission-control/internal/procs"
 )
 
@@ -95,7 +99,7 @@ func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
 func serve(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	listen := fs.String("listen", defaultListen, "address for the mission-control HTTP API")
+	listen := fs.String("listen", defaultListen, "TCP address for token-authenticated clients such as the desktop widget (empty disables)")
 	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for the OpenCode servers, if they require one")
 	var servers stringList
 	fs.Var(&servers, "opencode", "OpenCode server base URL (repeatable; default http://localhost:4096)")
@@ -120,6 +124,16 @@ func serve(args []string) error {
 	watch := func(ctx context.Context, url string, pid int) {
 		client := opencode.New(url)
 		client.Password = *password
+		// A bridged plain `opencode` requires the token its plugin wrote
+		// for this process (per-endpoint credentials, readable only by us).
+		if pid > 0 {
+			client.TokenFunc = func() string {
+				if port, tok, err := opencode.BridgeCredential(pid); err == nil && strings.HasSuffix(url, fmt.Sprintf(":%d", port)) {
+					return tok
+				}
+				return ""
+			}
+		}
 		onEvent := func(env opencode.Envelope) {
 			if sid := opencode.SessionOf(env); sid != "" {
 				live := store.WorkflowFor(adapter.SourceEvent{Adapter: "opencode", SourceID: sid})
@@ -256,23 +270,106 @@ func serve(args []string) error {
 		}
 	}()
 
-	srv := &http.Server{Addr: *listen, Handler: mux}
-	go func() {
-		<-ctx.Done()
-		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdown)
-	}()
-	logf("API listening on http://%s (try: mission-control status)", *listen)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	return listenAndServe(ctx, mux, *listen, logf)
+}
+
+// listenAndServe serves the API on two listeners:
+//   - a Unix socket in the per-user runtime dir (mode 0700 dir, 0600 socket)
+//     for the CLI, hooks and MCP: the filesystem is the authentication, and
+//     no other user can squat it;
+//   - optionally TCP loopback for clients that can't use a socket (the QML
+//     widget), requiring a bearer token that is regenerated on every start
+//     and written to a 0600 file only this user can read.
+func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf func(string, ...any)) error {
+	if err := paths.EnsureRuntimeDir(); err != nil {
 		return err
 	}
+	sock := paths.Socket()
+	if c, err := net.Dial("unix", sock); err == nil {
+		c.Close()
+		return fmt.Errorf("another mission-control is already serving %s", sock)
+	}
+	_ = os.Remove(sock) // stale socket from a previous run
+	ul, err := net.Listen("unix", sock)
+	if err != nil {
+		return err
+	}
+	if err := os.Chmod(sock, 0o600); err != nil {
+		ul.Close()
+		return err
+	}
+	servers := []*http.Server{{Handler: mux}}
+	listeners := []net.Listener{ul}
+	logf("API on unix:%s (try: mission-control status)", sock)
+
+	if listen != "" {
+		tl, err := net.Listen("tcp", listen)
+		if err != nil {
+			ul.Close()
+			return err
+		}
+		token, err := writeToken()
+		if err != nil {
+			ul.Close()
+			tl.Close()
+			return err
+		}
+		servers = append(servers, &http.Server{Handler: daemon.RequireToken(token, mux)})
+		listeners = append(listeners, tl)
+		logf("API on http://%s (token in %s)", tl.Addr(), paths.Token())
+	}
+
+	errc := make(chan error, len(servers))
+	for i := range servers {
+		go func(srv *http.Server, l net.Listener) { errc <- srv.Serve(l) }(servers[i], listeners[i])
+	}
+	select {
+	case <-ctx.Done():
+	case err := <-errc:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	}
+	shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		_ = srv.Shutdown(shutdown)
+	}
+	_ = os.Remove(sock)
 	return nil
+}
+
+// writeToken creates a fresh random token and stores it, mode 0600, at
+// paths.Token(). Written only after the TCP port is bound, so a client never
+// reads a token meant for a different process on that port.
+func writeToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	token := hex.EncodeToString(b)
+	tmp := paths.Token() + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.WriteString(token + "\n"); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Chmod(0o600); err != nil { // in case tmp pre-existed with other permissions
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return token, os.Rename(tmp, paths.Token())
 }
 
 func status(args []string) error {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
+	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON instead of a table")
 	_ = fs.Parse(args)
 

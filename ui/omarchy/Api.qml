@@ -8,6 +8,9 @@ QtObject {
   id: api
 
   property string baseUrl: "http://127.0.0.1:4200"
+  // The daemon's TCP port requires its bearer token (regenerated on every
+  // daemon start; the widget re-reads the file when it changes).
+  property string token: ""
   property int interval: 2000
   property bool active: true
 
@@ -58,6 +61,7 @@ QtObject {
       done(xhr.status, data)
     }
     xhr.open(method, baseUrl.replace(/\/$/, "") + path)
+    if (token) xhr.setRequestHeader("Authorization", "Bearer " + token)
     if (body !== undefined) {
       // The daemon refuses POSTs that are not JSON (CSRF guard).
       xhr.setRequestHeader("Content-Type", "application/json")
@@ -75,7 +79,9 @@ QtObject {
       loaded = true
       if (status !== 200 || !data) {
         reachable = false
-        error = status === 0 ? "mission-control is not running" : ("daemon returned " + status)
+        error = status === 0 ? "mission-control is not running"
+          : status === 401 ? "not authorized: cannot read the daemon's token file"
+          : ("daemon returned " + status)
         return
       }
       reachable = true

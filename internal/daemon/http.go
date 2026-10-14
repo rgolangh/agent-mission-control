@@ -3,13 +3,17 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"mission-control/internal/paths"
 )
 
 // WorkflowList is the body of GET /workflows.
@@ -146,12 +150,53 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = enc.Encode(v)
 }
 
-// --- client side, used by the CLI ---
+// RequireToken wraps the TCP listener's handler: every request except
+// GET /healthz must carry "Authorization: Bearer <token>". The Unix socket
+// needs no token (only this user can connect to it); TCP loopback is reachable
+// by every local user and sandboxed app, so it does.
+func RequireToken(token string, next http.Handler) http.Handler {
+	want := []byte("Bearer " + token)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), want) != 1 {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing or wrong token (see " + paths.Token() + ")"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
-// do performs a request against a mission-control API and decodes a 2xx JSON
-// body into out (if non-nil). Non-2xx responses become errors carrying the
-// server's message.
-func do(ctx context.Context, method, url string, body, out any) error {
+// --- client side, used by the CLI, hooks and MCP ---
+
+// DefaultAddr is the daemon's Unix socket, as an address for Dial.
+func DefaultAddr() string { return "unix:" + paths.Socket() }
+
+// Dial resolves a mission-control address: "unix:<path>" (the default) or an
+// http:// base URL, for which the daemon's token is read from its file and
+// sent. It returns the client, the base URL to append paths to, and the
+// Authorization header value ("" for the socket).
+func Dial(addr string) (*http.Client, string, string) {
+	if sock, ok := strings.CutPrefix(addr, "unix:"); ok {
+		tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", sock)
+		}}
+		return &http.Client{Transport: tr}, "http://localhost", ""
+	}
+	auth := ""
+	if tok, err := paths.ReadSecret(paths.Token()); err == nil && tok != "" {
+		auth = "Bearer " + tok
+	}
+	return http.DefaultClient, strings.TrimRight(addr, "/"), auth
+}
+
+// Call performs a request against a mission-control API at addr (see Dial)
+// and decodes a 2xx JSON body into out (if non-nil). Non-2xx responses become
+// errors carrying the server's message.
+func Call(ctx context.Context, method, addr, path string, body, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var rd *bytes.Reader
@@ -164,14 +209,18 @@ func do(ctx context.Context, method, url string, body, out any) error {
 	} else {
 		rd = bytes.NewReader(nil)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, url, rd)
+	client, base, auth := Dial(addr)
+	req, err := http.NewRequestWithContext(ctx, method, base+path, rd)
 	if err != nil {
 		return err
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("mission-control unreachable (is `mission-control serve` running?): %w", err)
 	}
@@ -195,7 +244,7 @@ func do(ctx context.Context, method, url string, body, out any) error {
 // FetchWorkflows is the client side of GET /workflows.
 func FetchWorkflows(ctx context.Context, baseURL string) ([]Workflow, error) {
 	var list WorkflowList
-	if err := do(ctx, http.MethodGet, baseURL+"/workflows", nil, &list); err != nil {
+	if err := Call(ctx, http.MethodGet, baseURL, "/workflows", nil, &list); err != nil {
 		return nil, err
 	}
 	return list.Workflows, nil
@@ -204,20 +253,20 @@ func FetchWorkflows(ctx context.Context, baseURL string) ([]Workflow, error) {
 // FetchWorkflow is the client side of GET /workflows/{id}.
 func FetchWorkflow(ctx context.Context, baseURL, ref string) (Workflow, error) {
 	var wf Workflow
-	err := do(ctx, http.MethodGet, baseURL+"/workflows/"+ref, nil, &wf)
+	err := Call(ctx, http.MethodGet, baseURL, "/workflows/"+url.PathEscape(ref), nil, &wf)
 	return wf, err
 }
 
 // PostAnswer is the client side of POST /workflows/{id}/answer.
 func PostAnswer(ctx context.Context, baseURL, ref string, req AnswerRequest) (AnswerResult, error) {
 	var res AnswerResult
-	err := do(ctx, http.MethodPost, baseURL+"/workflows/"+ref+"/answer", req, &res)
+	err := Call(ctx, http.MethodPost, baseURL, "/workflows/"+url.PathEscape(ref)+"/answer", req, &res)
 	return res, err
 }
 
 // PostSend is the client side of POST /workflows/{id}/send.
 func PostSend(ctx context.Context, baseURL, ref, text string) error {
-	return do(ctx, http.MethodPost, baseURL+"/workflows/"+ref+"/send", SendRequest{Text: text}, nil)
+	return Call(ctx, http.MethodPost, baseURL, "/workflows/"+url.PathEscape(ref)+"/send", SendRequest{Text: text}, nil)
 }
 
 // AwaitResolved polls a workflow until askID is no longer pending (the

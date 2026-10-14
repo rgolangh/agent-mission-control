@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"mission-control/internal/claudecode"
+	"mission-control/internal/daemon"
 	"mission-control/internal/procs"
 )
 
@@ -18,16 +21,18 @@ const hookTimeout = 400 * time.Millisecond
 
 // hook is run by an agent's hook system (Claude Code: see
 // integrations/claude-code). It reads the hook's JSON payload from stdin,
-// adds which process sent it, and posts it to the daemon. It never prints and
-// always exits 0: a hook's output and exit status can steer the agent, and
-// this one must only ever observe.
+// strips it to what the daemon needs (claudecode.Minimize: no prompts beyond
+// a title, no file contents, no command output), adds which process sent it,
+// and posts it to the daemon's Unix socket. It never prints and always exits
+// 0: a hook's output and exit status can steer the agent, and this one must
+// only ever observe.
 //
-//	mission-control hook [-addr URL] [-log FILE] claude-code
+//	mission-control hook [-addr ADDR] [-log FILE] claude-code
 func hook(args []string) error {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
-	logFile := fs.String("log", "", "also append each raw payload to this file (debugging)")
+	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address")
+	logFile := fs.String("log", "", "also append each minimized payload to this file (debugging)")
 	if fs.Parse(args) != nil || fs.NArg() != 1 || fs.Arg(0) != "claude-code" {
 		return nil
 	}
@@ -40,15 +45,6 @@ func hook(args []string) error {
 	if json.Unmarshal(raw, &payload) != nil {
 		return nil
 	}
-	if *logFile != "" {
-		if f, err := os.OpenFile(*logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
-			var line bytes.Buffer
-			if json.Compact(&line, raw) == nil {
-				f.Write(append(line.Bytes(), '\n'))
-			}
-			f.Close()
-		}
-	}
 
 	// The hook runs as a child (often via a shell) of the claude process.
 	// Its PID lets the daemon notice a session that died without a
@@ -59,16 +55,20 @@ func hook(args []string) error {
 			break
 		}
 	}
+	payload = claudecode.Minimize(payload)
 
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequest(http.MethodPost, *addr+"/hooks/claude-code", bytes.NewReader(body))
-	if err != nil {
-		return nil
+	if *logFile != "" {
+		if f, err := os.OpenFile(*logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			var line bytes.Buffer
+			if b, err := json.Marshal(payload); err == nil && json.Compact(&line, b) == nil {
+				f.Write(append(line.Bytes(), '\n'))
+			}
+			f.Close()
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	client := &http.Client{Timeout: hookTimeout}
-	if resp, err := client.Do(req); err == nil {
-		resp.Body.Close()
-	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), hookTimeout)
+	defer cancel()
+	_ = daemon.Call(ctx, http.MethodPost, *addr, "/hooks/claude-code", payload, nil)
 	return nil
 }
