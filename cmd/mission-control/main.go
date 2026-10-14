@@ -2,12 +2,15 @@
 //
 //	mission-control serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover]
 //	mission-control status [-addr http://127.0.0.1:4200] [-json]
+//	mission-control mcp    [-addr http://127.0.0.1:4200]
 //
 // `serve` subscribes to each OpenCode server given with -opencode (start
 // OpenCode with `opencode --port N`, or `opencode serve --port N`), folds the
 // normalized events into per-workflow state, and serves that state over HTTP.
 // The OpenCode servers do not need to be running yet; serve keeps retrying.
 // `status` asks a running daemon for the current state of every workflow.
+// `mcp` serves the same state, plus answer/send, as MCP tools on stdio, so an
+// orchestrating agent can drive the workflows (see mcp.go).
 package main
 
 import (
@@ -50,6 +53,8 @@ func main() {
 		err = answer(os.Args[2:])
 	case "send":
 		err = send(os.Args[2:])
+	case "mcp":
+		err = mcpServe(os.Args[2:])
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -69,6 +74,7 @@ func usage() {
   mission-control show   [-addr URL] [-json] <id>            pending asks + history
   mission-control answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
   mission-control send   [-addr URL] <id> <text...>          send free text
+  mission-control mcp    [-addr URL]                         MCP server on stdio (for agents)
 <id> is the ID column from status (a unique suffix is enough). <choice> is an
 option's number or label; for a permission: once | always | reject.
 `)

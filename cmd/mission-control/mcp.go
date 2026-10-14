@@ -1,0 +1,216 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"mission-control/internal/adapter"
+	"mission-control/internal/daemon"
+	"mission-control/internal/mcp"
+)
+
+const mcpInstructions = `mission-control tracks the state of the user's coding-agent workflows (e.g. OpenCode sessions in terminal tabs) and can push input back into them.
+
+- list_workflows gives every workflow's status: running, needs_input (blocked on the user: see its pending asks), stuck, done, failed. "stale" means the source is unreachable: the state is last-known and input will be refused.
+- To unblock a workflow in needs_input, call answer_workflow with one of the pending ask's options. A permission ask's options are once | always | reject — approving runs whatever the agent asked to run, so only approve what the user would.
+- send_to_workflow sends a new message into an idle/done/stuck session (e.g. "continue", or a follow-up instruction). It is refused while an ask is pending.
+- Workflow ids: the full id, or a unique suffix (>= 4 chars) of the source id, e.g. the short_id field.`
+
+// mcpServe runs an MCP server on stdin/stdout that proxies to a running
+// mission-control daemon. The daemon stays the only owner of state and of the
+// adapter connections; this process is a thin, stateless translator.
+func mcpServe(args []string) error {
+	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
+	addr := fs.String("addr", "http://"+defaultListen, "mission-control API base URL")
+	_ = fs.Parse(args)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	srv := &mcp.Server{
+		Name:         "mission-control",
+		Version:      "0.1.0",
+		Instructions: mcpInstructions,
+		Tools:        mcpTools(*addr),
+	}
+	return srv.Serve(ctx, os.Stdin, os.Stdout)
+}
+
+func mcpTools(addr string) []mcp.Tool {
+	return []mcp.Tool{
+		{
+			Name:        "list_workflows",
+			Description: "List the user's agent workflows with their current status, what they are waiting on (pending asks with options), title and working directory. Most recently updated first.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"status": {"type": "string", "enum": ["running","needs_input","stuck","done","failed"], "description": "only workflows in this status"}
+				},
+				"additionalProperties": false
+			}`),
+			Annotations: &mcp.Annotations{Title: "List workflows", ReadOnlyHint: true, IdempotentHint: true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					Status adapter.Status `json:"status"`
+				}
+				if err := mcp.DecodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				wfs, err := daemon.FetchWorkflows(ctx, addr)
+				if err != nil {
+					return "", err
+				}
+				out := []workflowSummary{}
+				for _, w := range wfs {
+					if a.Status == "" || w.Status == a.Status {
+						out = append(out, summarize(w))
+					}
+				}
+				return toJSON(map[string]any{"workflows": out})
+			},
+		},
+		{
+			Name:        "get_workflow",
+			Description: "Get one workflow in full: status, pending asks and the recent history of status transitions.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id": {"type": "string", "description": "workflow id, or a unique suffix (>= 4 chars) of its source id"}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			}`),
+			Annotations: &mcp.Annotations{Title: "Get workflow", ReadOnlyHint: true, IdempotentHint: true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					ID string `json:"id"`
+				}
+				if err := mcp.DecodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				wf, err := daemon.FetchWorkflow(ctx, addr, a.ID)
+				if err != nil {
+					return "", err
+				}
+				return toJSON(wf)
+			},
+		},
+		{
+			Name: "answer_workflow",
+			Description: "Answer a question or permission request a workflow is blocked on (status needs_input). " +
+				"Give `choice` (an option label or its 1-based number; comma-separated if several are allowed) for a single-question ask, " +
+				"or `answers` (one list of strings per question) for a multi-question ask. " +
+				"Waits a few seconds for the agent to confirm and reports the resulting status.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id":      {"type": "string", "description": "workflow id or unique source-id suffix"},
+					"ask_id":  {"type": "string", "description": "which pending ask; only needed when several are pending"},
+					"choice":  {"type": "string", "description": "option label or 1-based number"},
+					"answers": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}, "description": "one list of answers per question"}
+				},
+				"required": ["id"],
+				"additionalProperties": false
+			}`),
+			Annotations: &mcp.Annotations{Title: "Answer workflow", DestructiveHint: true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					ID string `json:"id"`
+					daemon.AnswerRequest
+				}
+				if err := mcp.DecodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				res, err := daemon.PostAnswer(ctx, addr, a.ID, a.AnswerRequest)
+				if err != nil {
+					return "", err
+				}
+				wf, ok := daemon.AwaitResolved(ctx, addr, res.WorkflowID, res.AskID, 6*time.Second)
+				out := map[string]any{"delivered": res, "confirmed": ok}
+				if ok {
+					out["workflow"] = summarize(wf)
+				} else {
+					out["note"] = "delivered, but the source has not confirmed yet; check get_workflow"
+				}
+				return toJSON(out)
+			},
+		},
+		{
+			Name:        "send_to_workflow",
+			Description: "Send a free-text message into a workflow's agent session, as if the user typed it (e.g. to tell a finished or stuck agent how to continue). Refused while the workflow has a pending ask — use answer_workflow for that.",
+			InputSchema: json.RawMessage(`{
+				"type": "object",
+				"properties": {
+					"id":   {"type": "string", "description": "workflow id or unique source-id suffix"},
+					"text": {"type": "string", "description": "the message to send"}
+				},
+				"required": ["id", "text"],
+				"additionalProperties": false
+			}`),
+			Annotations: &mcp.Annotations{Title: "Send to workflow", DestructiveHint: true},
+			Handler: func(ctx context.Context, raw json.RawMessage) (string, error) {
+				var a struct {
+					ID   string `json:"id"`
+					Text string `json:"text"`
+				}
+				if err := mcp.DecodeArgs(raw, &a); err != nil {
+					return "", err
+				}
+				if err := daemon.PostSend(ctx, addr, a.ID, a.Text); err != nil {
+					return "", err
+				}
+				return fmt.Sprintf("sent to %s", a.ID), nil
+			},
+		},
+	}
+}
+
+// workflowSummary is a workflow without its history: what an orchestrating
+// agent needs to decide what to do next, at a fraction of the tokens.
+type workflowSummary struct {
+	ID        string         `json:"id"`
+	ShortID   string         `json:"short_id"`
+	Status    adapter.Status `json:"status"`
+	Stale     string         `json:"stale,omitempty"` // reason, when stale
+	Title     string         `json:"title,omitempty"`
+	Location  string         `json:"location,omitempty"`
+	Message   string         `json:"message"`
+	Updated   string         `json:"updated"`
+	CanInput  bool           `json:"can_receive_input"`
+	Pending   []adapter.Ask  `json:"pending,omitempty"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+func summarize(w daemon.Workflow) workflowSummary {
+	s := workflowSummary{
+		ID:        w.ID,
+		ShortID:   shortID(w.SourceID),
+		Status:    w.Status,
+		Title:     w.Title,
+		Location:  w.Location,
+		Message:   w.Message,
+		Updated:   age(w.UpdatedAt),
+		CanInput:  w.Capabilities.CanReceiveInput && !w.Stale,
+		Pending:   w.Pending,
+		UpdatedAt: w.UpdatedAt,
+	}
+	if w.Stale {
+		s.Stale = strings.TrimSpace(w.StaleReason)
+		if s.Stale == "" {
+			s.Stale = "source unreachable"
+		}
+	}
+	return s
+}
+
+func toJSON(v any) (string, error) {
+	b, err := json.MarshalIndent(v, "", "  ")
+	return string(b), err
+}

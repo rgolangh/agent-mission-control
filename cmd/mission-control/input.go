@@ -101,17 +101,9 @@ func answer(args []string) error {
 
 	// State only moves when the source confirms, so wait briefly for that
 	// rather than claiming success we haven't seen.
-	deadline := time.Now().Add(6 * time.Second)
-	for time.Now().Before(deadline) {
-		time.Sleep(300 * time.Millisecond)
-		wf, err := daemon.FetchWorkflow(ctx, *addr, res.WorkflowID)
-		if err != nil {
-			break
-		}
-		if !hasAsk(wf, res.AskID) {
-			fmt.Printf("confirmed: now %s — %s\n", wf.Status, wf.Message)
-			return nil
-		}
+	if wf, ok := daemon.AwaitResolved(ctx, *addr, res.WorkflowID, res.AskID, 6*time.Second); ok {
+		fmt.Printf("confirmed: now %s — %s\n", wf.Status, wf.Message)
+		return nil
 	}
 	fmt.Println("delivered, but no confirmation from the source yet; check `mission-control show`")
 	return nil
@@ -129,15 +121,6 @@ func send(args []string) error {
 	}
 	fmt.Println("sent")
 	return nil
-}
-
-func hasAsk(wf daemon.Workflow, id string) bool {
-	for _, a := range wf.Pending {
-		if a.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 func flatten(answers [][]string) []string {

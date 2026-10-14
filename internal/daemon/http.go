@@ -215,3 +215,28 @@ func PostAnswer(ctx context.Context, baseURL, ref string, req AnswerRequest) (An
 func PostSend(ctx context.Context, baseURL, ref, text string) error {
 	return do(ctx, http.MethodPost, baseURL+"/workflows/"+ref+"/send", SendRequest{Text: text}, nil)
 }
+
+// AwaitResolved polls a workflow until askID is no longer pending (the
+// source confirmed the answer) or timeout passes. It returns the last state
+// seen and whether the confirmation arrived. An answer never moves state by
+// itself, so this is how a caller learns what actually happened.
+func AwaitResolved(ctx context.Context, baseURL, workflowID, askID string, timeout time.Duration) (Workflow, bool) {
+	var last Workflow
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			return last, false
+		case <-time.After(300 * time.Millisecond):
+		}
+		wf, err := FetchWorkflow(ctx, baseURL, workflowID)
+		if err != nil {
+			return last, false
+		}
+		last = wf
+		if !wf.HasPending(askID) {
+			return wf, true
+		}
+	}
+	return last, false
+}

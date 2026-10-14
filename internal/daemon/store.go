@@ -266,3 +266,13 @@ func clone(w *Workflow) Workflow {
 	c.Pending = append([]adapter.Ask(nil), w.Pending...)
 	return c
 }
+
+// HasPending reports whether the ask with this ID is still waiting.
+func (w Workflow) HasPending(askID string) bool {
+	for _, a := range w.Pending {
+		if a.ID == askID {
+			return true
+		}
+	}
+	return false
+}
