@@ -68,6 +68,7 @@ type SessionInfoProps struct {
 	Info      struct {
 		Title     string `json:"title"`
 		Directory string `json:"directory"`
+		ParentID  string `json:"parentID"` // set on subagent (task tool) sessions
 	} `json:"info"`
 }
 
@@ -164,7 +165,7 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 		var p SessionInfoProps
 		_ = json.Unmarshal(env.Properties, &p)
 		ev.SourceID, ev.Status, ev.Message = p.SessionID, adapter.StatusRunning, "session started"
-		ev.Title, ev.Location = p.Info.Title, p.Info.Directory
+		ev.Title, ev.Location, ev.Parent = p.Info.Title, p.Info.Directory, p.Info.ParentID
 
 	case EventSessionUpdated:
 		// Metadata only (retitle, cost, summary…): no Status, so the daemon
@@ -172,7 +173,7 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 		var p SessionInfoProps
 		_ = json.Unmarshal(env.Properties, &p)
 		ev.SourceID = p.SessionID
-		ev.Title, ev.Location = p.Info.Title, p.Info.Directory
+		ev.Title, ev.Location, ev.Parent = p.Info.Title, p.Info.Directory, p.Info.ParentID
 
 	case EventSessionDeleted:
 		var p SessionProps

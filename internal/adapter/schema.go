@@ -37,6 +37,7 @@ type SourceEvent struct {
 	Message      string       `json:"message"`               // short human-readable summary for the dashboard
 	Title        string       `json:"title,omitempty"`       // what the source calls itself, e.g. a session title
 	Location     string       `json:"location,omitempty"`    // where it lives, e.g. working directory
+	Parent       string       `json:"parent,omitempty"`      // source ID (same adapter) of the source that spawned this one, e.g. a subagent's parent session
 	Timestamp    time.Time    `json:"timestamp"`
 	Capabilities Capabilities `json:"capabilities"`
 	Ask          *Ask         `json:"ask,omitempty"`      // set when the source became blocked on something the user can answer

@@ -118,7 +118,7 @@ func serve(args []string) error {
 				return
 			}
 			changed := store.Apply(ev)
-			id := daemon.WorkflowID(ev)
+			id := store.WorkflowFor(ev) // a subagent's events belong to its parent's workflow
 			store.Bind(id, client, url) // answer/send route back through this server
 			if changed && ev.Gone {
 				logf("%s:%s gone — %s", ev.Adapter, ev.SourceID, ev.Message)

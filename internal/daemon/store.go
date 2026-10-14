@@ -5,6 +5,7 @@ package daemon
 
 import (
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,11 +51,15 @@ type Store struct {
 	mu      sync.RWMutex
 	m       map[string]*Workflow
 	syncing map[string]map[string]bool // origin -> workflow IDs seen since BeginSync
+	parents map[string]string          // child source key -> parent source key (subagents)
 }
 
 func NewStore() *Store {
-	return &Store{m: make(map[string]*Workflow), syncing: make(map[string]map[string]bool)}
+	return &Store{m: make(map[string]*Workflow), syncing: make(map[string]map[string]bool), parents: make(map[string]string)}
 }
+
+// maxDepth bounds parent-chain walks, so a bad link can never loop forever.
+const maxDepth = 16
 
 // WorkflowID is the workflow an event belongs to: the daemon-assigned
 // WorkflowID if set, otherwise one workflow per (adapter, source).
@@ -66,6 +71,26 @@ func WorkflowID(ev adapter.SourceEvent) string {
 		return ""
 	}
 	return ev.Adapter + ":" + ev.SourceID
+}
+
+// WorkflowFor is the workflow an event belongs to after correlation: a
+// subagent's events belong to the workflow of the session that spawned it.
+// Adapters' input bindings must use this, not WorkflowID.
+func (s *Store) WorkflowFor(ev adapter.SourceEvent) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.rootLocked(WorkflowID(ev))
+}
+
+func (s *Store) rootLocked(id string) string {
+	for i := 0; i < maxDepth; i++ {
+		p, ok := s.parents[id]
+		if !ok {
+			return id
+		}
+		id = p
+	}
+	return id
 }
 
 // Apply folds one event into the store and reports whether it changed the
@@ -85,6 +110,8 @@ func WorkflowID(ev adapter.SourceEvent) string {
 //     pending.
 //   - A done or failed source has no pending asks.
 //   - A Gone event (the source was deleted) drops the workflow.
+//   - A source with a Parent (a subagent) is not a workflow of its own: see
+//     applyChild.
 func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	id := WorkflowID(ev)
 	if id == "" || ev.Status == adapter.StatusUnknown {
@@ -93,6 +120,13 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if ev.Parent != "" {
+		s.linkLocked(id, ev.Adapter+":"+ev.Parent, ev.Timestamp)
+	}
+	if root := s.rootLocked(id); root != id {
+		return s.applyChild(root, ev)
+	}
 
 	if ev.Gone {
 		_, existed := s.m[id]
@@ -131,17 +165,83 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	}
 
 	w.Capabilities = ev.Capabilities
-	w.UpdatedAt = ev.Timestamp
+	return w.transition(ev.Status, ev.Message, ev.Timestamp)
+}
 
-	if ok && w.Status == ev.Status && w.Message == ev.Message {
+// transition records a (status, message) change and reports whether it was
+// one; a repeat only refreshes UpdatedAt.
+func (w *Workflow) transition(st adapter.Status, msg string, at time.Time) bool {
+	w.UpdatedAt = at
+	if w.Status == st && w.Message == msg {
 		return false
 	}
-	w.Status, w.Message = ev.Status, ev.Message
-	w.History = append(w.History, Transition{Status: ev.Status, Message: ev.Message, At: ev.Timestamp})
+	w.Status, w.Message = st, msg
+	w.History = append(w.History, Transition{Status: st, Message: msg, At: at})
 	if len(w.History) > maxHistory {
 		w.History = w.History[len(w.History)-maxHistory:]
 	}
 	return true
+}
+
+// linkLocked records that source child was spawned by parent. If child was
+// already tracked as a workflow of its own (its first events arrived before
+// the link, as in a snapshot replay), it is folded into the root: its
+// pending asks move there and its own entry is dropped.
+func (s *Store) linkLocked(child, parent string, at time.Time) {
+	if child == parent || s.parents[child] != "" || s.rootLocked(parent) == child {
+		return
+	}
+	s.parents[child] = parent
+	w, ok := s.m[child]
+	if !ok {
+		return
+	}
+	delete(s.m, child)
+	for _, a := range w.Pending {
+		root := s.rootWorkflowLocked(s.rootLocked(child), w.Adapter, w.Capabilities, at)
+		root.setAsk(a)
+		root.Capabilities = w.Capabilities
+		root.transition(adapter.StatusNeedsInput, "subagent "+w.Message, at)
+	}
+}
+
+// rootWorkflowLocked returns the workflow with this ID, creating it if a
+// subagent's ask arrives before anything from the parent itself.
+func (s *Store) rootWorkflowLocked(id, adapterName string, caps adapter.Capabilities, at time.Time) *Workflow {
+	if w, ok := s.m[id]; ok {
+		return w
+	}
+	w := &Workflow{ID: id, Adapter: adapterName, SourceID: strings.TrimPrefix(id, adapterName+":"), Capabilities: caps, StartedAt: at}
+	s.m[id] = w
+	return w
+}
+
+// applyChild handles an event from a subagent whose root workflow is root.
+// The parent stays busy for as long as its subagent runs, so the subagent's
+// own running/idle/error states add nothing and are dropped. What matters is
+// when it blocks on the user: its asks surface on the root workflow (answers
+// route by ask ID, so the parent's binding delivers them), and resolving
+// them returns the root to running.
+func (s *Store) applyChild(root string, ev adapter.SourceEvent) bool {
+	if ev.Gone {
+		delete(s.parents, WorkflowID(ev))
+		return false
+	}
+	if ev.Ask != nil {
+		w := s.rootWorkflowLocked(root, ev.Adapter, ev.Capabilities, ev.Timestamp)
+		w.setAsk(*ev.Ask)
+		w.Capabilities = ev.Capabilities
+		return w.transition(adapter.StatusNeedsInput, "subagent "+ev.Message, ev.Timestamp)
+	}
+	w, ok := s.m[root]
+	if ev.Resolves == "" || !ok {
+		return false
+	}
+	w.dropAsk(ev.Resolves)
+	if len(w.Pending) == 0 && w.Status == adapter.StatusNeedsInput {
+		return w.transition(adapter.StatusRunning, ev.Message, ev.Timestamp)
+	}
+	return false
 }
 
 // Bind records how to push input back to a workflow's source and which
@@ -204,12 +304,8 @@ func (s *Store) EndSync(origin string, now time.Time) {
 			continue
 		}
 		if w.Status == adapter.StatusRunning || w.Status == adapter.StatusNeedsInput {
-			const msg = "no longer active (stopped while mission-control was disconnected)"
-			w.Status, w.Message, w.Pending, w.UpdatedAt = adapter.StatusDone, msg, nil, now
-			w.History = append(w.History, Transition{Status: adapter.StatusDone, Message: msg, At: now})
-			if len(w.History) > maxHistory {
-				w.History = w.History[len(w.History)-maxHistory:]
-			}
+			w.Pending = nil
+			w.transition(adapter.StatusDone, "no longer active (stopped while mission-control was disconnected)", now)
 		}
 	}
 }

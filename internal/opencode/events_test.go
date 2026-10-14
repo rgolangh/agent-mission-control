@@ -82,3 +82,14 @@ func TestNormalizeSessionDeleted(t *testing.T) {
 		t.Errorf("session.deleted = ok:%v %+v", ok, ev)
 	}
 }
+
+// Trimmed from a live subagent (task tool) run on opencode 1.18.33.
+func TestNormalizeSubagentParent(t *testing.T) {
+	frame := `{"type":"session.created","properties":{"sessionID":"ses_kid","info":{"id":"ses_kid","parentID":"ses_parent","title":"Ask color (@general subagent)","directory":"/tmp/x"}}}`
+	var env Envelope
+	json.Unmarshal([]byte(frame), &env)
+	ev, ok := Normalize(env)
+	if !ok || ev.Parent != "ses_parent" || ev.SourceID != "ses_kid" {
+		t.Errorf("subagent session.created = ok:%v %+v", ok, ev)
+	}
+}
