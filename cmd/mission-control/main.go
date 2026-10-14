@@ -27,6 +27,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"mission-control/internal/adapter"
 	"mission-control/internal/daemon"
 	"mission-control/internal/discovery"
 	"mission-control/internal/opencode"
@@ -95,6 +96,7 @@ func serve(args []string) error {
 	fs.Var(&servers, "opencode", "OpenCode server base URL (repeatable; default http://localhost:4096)")
 	discover := fs.Bool("discover", false, "also find and attach to running `opencode --port N` servers automatically (Linux)")
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
+	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
 	_ = fs.Parse(args)
 	if len(servers) == 0 && !*discover {
 		servers = stringList{"http://localhost:4096"}
@@ -113,18 +115,33 @@ func serve(args []string) error {
 		client := opencode.New(url)
 		client.Password = *password
 		onEvent := func(env opencode.Envelope) {
+			if sid := opencode.SessionOf(env); sid != "" {
+				live := store.WorkflowFor(adapter.SourceEvent{Adapter: "opencode", SourceID: sid})
+				if store.Touch(live, time.Now()) {
+					logf("%s resumed after being flagged as hung", live)
+				}
+			}
 			ev, ok := opencode.Normalize(env)
 			if !ok {
 				return
 			}
-			changed := store.Apply(ev)
 			id := store.WorkflowFor(ev) // a subagent's events belong to its parent's workflow
+			rule := ""
+			// A subagent's turn ending is not the workflow's: its idle is dropped anyway.
+			if ev.TurnEnded && id == daemon.WorkflowID(ev) {
+				if v, err := daemon.JudgeTurn(ctx, client, &ev); err != nil {
+					logf("%s:%s reading last turn: %v", ev.Adapter, ev.SourceID, err)
+				} else {
+					rule = "  (rule: " + v.Rule + ")"
+				}
+			}
+			changed := store.Apply(ev)
 			store.Bind(id, client, url) // answer/send route back through this server
 			if changed && ev.Gone {
 				logf("%s:%s gone — %s", ev.Adapter, ev.SourceID, ev.Message)
 			} else if changed {
 				wf, _ := store.Get(id)
-				logf("%s:%s %s — %s%s", ev.Adapter, ev.SourceID, ev.Status, ev.Message, quoted(wf.Title))
+				logf("%s:%s %s — %s%s%s", ev.Adapter, ev.SourceID, ev.Status, ev.Message, quoted(wf.Title), rule)
 			} else if ev.SourceID == "" {
 				logf("ignored unattributed event: %s", ev.Message)
 			}
@@ -175,6 +192,23 @@ func serve(args []string) error {
 			}
 		}()
 		logf("discovering OpenCode servers every %s", *discoverEvery)
+	}
+
+	if *hungAfter > 0 {
+		go func() {
+			tick := time.NewTicker(30 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-tick.C:
+					for _, id := range store.FlagHung(now, *hungAfter) {
+						logf("%s stuck — no activity for over %s", id, *hungAfter)
+					}
+				}
+			}
+		}()
 	}
 
 	srv := &http.Server{Addr: *listen, Handler: daemon.Handler(store)}

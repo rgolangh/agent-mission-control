@@ -37,6 +37,10 @@ const (
 	EventQuestionRejected = "question.rejected"
 )
 
+// retriesBeforeStuck is the retry attempt at which a session counts as stuck
+// on its provider rather than briefly rate limited.
+const retriesBeforeStuck = 3
+
 // noisy lists high-volume frames that carry no workflow-level state. They are
 // dropped by Normalize; anything NOT listed here and not handled below is
 // still surfaced as StatusUnknown so new event types stay visible.
@@ -138,6 +142,15 @@ type QuestionAskedProps struct {
 	} `json:"questions"`
 }
 
+// SessionOf returns the session a frame is about, for every frame type that
+// has one (all session-scoped frames carry a top-level sessionID, including
+// the noisy ones Normalize drops), or "".
+func SessionOf(env Envelope) string {
+	var p SessionProps
+	_ = json.Unmarshal(env.Properties, &p)
+	return p.SessionID
+}
+
 // Normalize turns one raw Envelope into our tool-agnostic SourceEvent. The
 // bool is false for frames that are known noise and should not be published.
 // Request IDs needed to answer a question/permission live in Raw (the
@@ -189,8 +202,13 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 		case "busy":
 			ev.Status, ev.Message = adapter.StatusRunning, "working"
 		case "retry":
+			// A retry or two is routine (rate limits, overload). Past that the
+			// provider is the problem and you should know.
 			ev.Status = adapter.StatusRunning
-			ev.Message = fmt.Sprintf("retrying (attempt %d): %s", p.Status.Attempt, p.Status.Message)
+			if p.Status.Attempt >= retriesBeforeStuck {
+				ev.Status = adapter.StatusStuck
+			}
+			ev.Message = fmt.Sprintf("provider retrying (attempt %d): %s", p.Status.Attempt, p.Status.Message)
 		case "idle":
 			// session.idle fires right alongside this and carries the
 			// done-vs-stuck judgment; don't publish the same fact twice.
@@ -202,18 +220,22 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 	case EventSessionIdle:
 		var p SessionProps
 		_ = json.Unmarshal(env.Properties, &p)
-		ev.SourceID, ev.Status = p.SessionID, adapter.StatusDone
-		// idle does not distinguish "finished" from "stuck, no next step".
-		// The daemon should pair this with the last todo/message state (or
-		// have an LLM read the transcript tail) before showing it as done.
-		ev.Message = "session went idle (done, or stuck — needs disambiguation upstream)"
+		// Idle alone can't tell finished from stuck from "asked in plain
+		// text": TurnEnded asks the daemon to read the transcript (LastTurn)
+		// and judge. done is only the fallback if that read fails.
+		ev.SourceID, ev.Status, ev.TurnEnded = p.SessionID, adapter.StatusDone, true
+		ev.Message = "went idle"
 
 	case EventSessionError:
 		var p ErrorProps
 		_ = json.Unmarshal(env.Properties, &p)
 		ev.SourceID, ev.Status = p.SessionID, adapter.StatusFailed
 		ev.Message = "session error"
-		if p.Error.Name != "" {
+		switch {
+		case p.Error.Name == "MessageAbortedError":
+			// You pressed Esc: not a failure, but the work is unfinished.
+			ev.Status, ev.Message = adapter.StatusStuck, "interrupted before it finished"
+		case p.Error.Name != "":
 			ev.Message = "session error: " + p.Error.Name
 		}
 
@@ -221,7 +243,7 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 		var p TodoUpdatedProps
 		_ = json.Unmarshal(env.Properties, &p)
 		ev.SourceID = p.SessionID
-		ev.Status, ev.Message = summarizeTodos(p.Todos)
+		ev.Status, ev.Message = adapter.StatusRunning, todoProgress(p.Todos)
 
 	case EventPermissionAsked:
 		var p PermissionAskedProps
@@ -278,13 +300,12 @@ func Normalize(env Envelope) (adapter.SourceEvent, bool) {
 	return ev, true
 }
 
-// summarizeTodos gives a cheap, local heuristic for "done" vs "stuck" that
-// doesn't need an LLM call: if every todo is completed (or cancelled), call
-// it done; otherwise it is still in flight. The daemon can override this
-// later with a smarter check.
-func summarizeTodos(todos []Todo) (adapter.Status, string) {
+// todoProgress describes the agent's own todo list. Todos only change
+// mid-turn, so this is progress, never a verdict: whether open todos at the
+// end mean "stuck" is for daemon.Judge.
+func todoProgress(todos []Todo) string {
 	if len(todos) == 0 {
-		return adapter.StatusRunning, "no todos yet"
+		return "working (todo list cleared)"
 	}
 	finished := 0
 	for _, t := range todos {
@@ -292,8 +313,5 @@ func summarizeTodos(todos []Todo) (adapter.Status, string) {
 			finished++
 		}
 	}
-	if finished == len(todos) {
-		return adapter.StatusDone, fmt.Sprintf("all %d todos finished", len(todos))
-	}
-	return adapter.StatusRunning, fmt.Sprintf("%d/%d todos finished", finished, len(todos))
+	return fmt.Sprintf("working: %d/%d todos done", finished, len(todos))
 }

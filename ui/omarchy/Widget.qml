@@ -45,13 +45,16 @@ Item {
     baseUrl: root.setting("apiUrl", "http://127.0.0.1:4200")
     // Snappier while you are looking at it.
     interval: root.opened ? 1000 : root.setting("pollIntervalMs", 2000)
-    onNewAsk: function(workflow, ask) {
+    onNeedsYou: function(workflow) {
       if (!root.setting("notify", true)) return
       var title = workflow.title || workflow.source_id
-      var body = ask.questions && ask.questions.length ? ask.questions[0].question : workflow.message
+      var ask = workflow.pending && workflow.pending.length ? workflow.pending[0] : null
+      var body = ask && ask.questions && ask.questions.length ? ask.questions[0].question : workflow.message
+      var heading = { needs_input: "Agent needs you", stuck: "Agent is stuck", failed: "Agent failed" }[workflow.status]
+      var icon = workflow.status === "needs_input" ? "dialog-question" : "dialog-warning"
       // argv, not a shell string: titles and questions come from agents.
-      Quickshell.execDetached(["notify-send", "-a", "Mission control", "-i", "dialog-question",
-        "Agent needs you: " + title, String(body || "")])
+      Quickshell.execDetached(["notify-send", "-a", "Mission control", "-i", icon,
+        heading + ": " + title, String(body || "")])
     }
   }
 
@@ -78,7 +81,7 @@ Item {
   function statusColor(w) {
     if (w.stale) return dim
     switch (w.status) {
-    case "needs_input": case "failed": return urgent
+    case "needs_input": case "stuck": case "failed": return urgent
     case "done": return dim
     }
     return fg
@@ -113,6 +116,8 @@ Item {
     if (!api.reachable) return api.loaded ? api.error : "connecting…"
     var parts = []
     if (api.waitingCount) parts.push(api.waitingCount + " waiting on you")
+    if (api.stuckCount) parts.push(api.stuckCount + " stuck")
+    if (api.failedCount) parts.push(api.failedCount + " failed")
     if (api.runningCount) parts.push(api.runningCount + " running")
     if (!parts.length) parts.push(api.workflows.length ? "nothing needs you" : "no workflows")
     return parts.join(" · ")
@@ -150,7 +155,7 @@ Item {
       text: "󰚚" // nf-md-robot_outline
       font.family: root.fontFamily
       font.pixelSize: 14
-      color: !api.reachable ? root.dim : (api.waitingCount ? root.urgent : root.fg)
+      color: !api.reachable ? root.dim : (api.attentionCount ? root.urgent : root.fg)
 
       SequentialAnimation on opacity {
         running: api.waitingCount > 0
@@ -164,11 +169,12 @@ Item {
     Text {
       anchors.verticalCenter: parent.verticalCenter
       visible: text !== ""
-      text: api.waitingCount ? String(api.waitingCount) : (api.runningCount ? String(api.runningCount) : "")
+      // What needs you; otherwise how many are busy.
+      text: api.attentionCount ? String(api.attentionCount) : (api.runningCount ? String(api.runningCount) : "")
       font.family: root.fontFamily
       font.pixelSize: 12
-      font.bold: api.waitingCount > 0
-      color: api.waitingCount ? root.urgent : root.dim
+      font.bold: api.attentionCount > 0
+      color: api.attentionCount ? root.urgent : root.dim
     }
   }
 
@@ -392,6 +398,7 @@ Item {
     readonly property var question: ask && ask.questions && ask.questions.length === 1 ? ask.questions[0] : null
     readonly property bool canInput: workflow.capabilities && workflow.capabilities.can_receive_input && !workflow.stale
     readonly property bool canContinue: canInput && !ask && workflow.status !== "running"
+    readonly property bool needsYou: !workflow.stale && (workflow.status === "needs_input" || workflow.status === "stuck" || workflow.status === "failed")
     property var picked: ({})
     property string feedback: ""
     property bool feedbackIsError: false
@@ -418,8 +425,8 @@ Item {
 
     implicitHeight: content.implicitHeight + 20
     radius: 8
-    color: workflow.status === "needs_input" && !workflow.stale ? root.alpha(root.urgent, 0.10) : root.alpha(root.fg, 0.05)
-    border.color: workflow.status === "needs_input" && !workflow.stale ? root.alpha(root.urgent, 0.45) : "transparent"
+    color: needsYou ? root.alpha(root.urgent, 0.10) : root.alpha(root.fg, 0.05)
+    border.color: needsYou ? root.alpha(root.urgent, workflow.status === "needs_input" ? 0.45 : 0.25) : "transparent"
     border.width: 1
     opacity: workflow.stale ? 0.6 : 1
 
@@ -544,7 +551,8 @@ Item {
       InputLine {
         width: parent.width
         visible: wcard.canContinue
-        placeholder: wcard.workflow.status === "done" ? "follow up…" : "tell it how to continue…"
+        placeholder: wcard.workflow.status === "done" ? "follow up…"
+          : wcard.workflow.status === "needs_input" ? "reply…" : "tell it how to continue…"
         onSubmitted: function(t) {
           text = ""
           wcard.busy = true

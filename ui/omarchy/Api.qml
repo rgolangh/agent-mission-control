@@ -17,13 +17,16 @@ QtObject {
   property string error: ""
 
   readonly property int waitingCount: count("needs_input")
+  readonly property int stuckCount: count("stuck")
+  readonly property int failedCount: count("failed")
   readonly property int runningCount: count("running")
+  // Everything that won't move without you.
+  readonly property int attentionCount: waitingCount + stuckCount + failedCount
 
-  // A workflow just started waiting on an ask we have not seen before.
-  // Not emitted for asks already pending when the widget first loads.
-  signal newAsk(var workflow, var ask)
+  // A workflow just started needing you (see _noticeTransitions).
+  signal needsYou(var workflow)
 
-  property var _knownAsks: ({})
+  property var _signatures: ({})
   property bool _primed: false
   property bool _inFlight: false
 
@@ -85,22 +88,25 @@ QtObject {
         if (ra !== rb) return ra - rb
         return a.updated_at < b.updated_at ? 1 : (a.updated_at > b.updated_at ? -1 : 0)
       })
-      _noticeAsks(list)
+      _noticeTransitions(list)
       workflows = list
     })
   }
 
-  function _noticeAsks(list) {
+  // Emits needsYou when a workflow enters needs_input/stuck/failed, or a new
+  // ask arrives while it waits. Silent on the first poll, so loading the
+  // widget doesn't replay everything already waiting.
+  function _noticeTransitions(list) {
     var seen = {}
     for (var i = 0; i < list.length; i++) {
-      var pending = list[i].pending || []
-      for (var j = 0; j < pending.length; j++) {
-        var key = list[i].id + "/" + pending[j].id
-        seen[key] = true
-        if (_primed && !_knownAsks[key]) newAsk(list[i], pending[j])
-      }
+      var w = list[i]
+      var pending = (w.pending || []).map(function(a) { return a.id }).join(",")
+      var sig = w.status + "|" + pending
+      seen[w.id] = sig
+      var attention = !w.stale && (w.status === "needs_input" || w.status === "stuck" || w.status === "failed")
+      if (_primed && attention && _signatures[w.id] !== sig) needsYou(w)
     }
-    _knownAsks = seen
+    _signatures = seen
     _primed = true
   }
 

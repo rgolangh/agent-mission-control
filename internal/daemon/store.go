@@ -41,9 +41,11 @@ type Workflow struct {
 	StaleReason  string               `json:"stale_reason,omitempty"`
 	StartedAt    time.Time            `json:"started_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
+	LastActivity time.Time            `json:"last_activity"` // last frame of any kind from the source, including streaming output
 	History      []Transition         `json:"history"`
 
 	input adapter.Responder // how to push input back; nil until an adapter binds one
+	hung  bool              // stuck was set by FlagHung, so new activity undoes it
 }
 
 // Store is the in-memory workflow table. Safe for concurrent use.
@@ -165,7 +167,55 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	}
 
 	w.Capabilities = ev.Capabilities
+	w.hung = false
+	if ev.Timestamp.After(w.LastActivity) {
+		w.LastActivity = ev.Timestamp
+	}
 	return w.transition(ev.Status, ev.Message, ev.Timestamp)
+}
+
+// Touch records that a source showed signs of life (any frame, even ones
+// that carry no state, like streamed output). A workflow FlagHung marked
+// stuck goes back to running.
+func (s *Store) Touch(id string, at time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.m[id]
+	if !ok {
+		return false
+	}
+	if at.After(w.LastActivity) {
+		w.LastActivity = at
+	}
+	if !w.hung {
+		return false
+	}
+	w.hung = false
+	return w.transition(adapter.StatusRunning, "working again", at)
+}
+
+// FlagHung marks running workflows that have shown no activity at all for
+// longer than after as stuck: a hung provider stream, a tool that never
+// returns, or a long command that prints nothing. Anything heard from the
+// source undoes it (Touch, or any state event). Workflows waiting on an ask
+// or on an unreachable origin are left alone: their silence is explained.
+// Returns the IDs it flagged.
+func (s *Store) FlagHung(now time.Time, after time.Duration) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var flagged []string
+	for id, w := range s.m {
+		if w.Status != adapter.StatusRunning || w.Stale || len(w.Pending) > 0 || w.LastActivity.IsZero() {
+			continue
+		}
+		if idle := now.Sub(w.LastActivity); idle > after {
+			w.hung = true
+			w.transition(adapter.StatusStuck, "no activity for "+idle.Round(time.Minute).String()+": hung, or a long silent command", now)
+			flagged = append(flagged, id)
+		}
+	}
+	sort.Strings(flagged)
+	return flagged
 }
 
 // transition records a (status, message) change and reports whether it was

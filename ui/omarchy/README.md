@@ -1,10 +1,11 @@
 # Mission control: omarchy-shell bar widget
 
-A bar icon that counts the agent workflows waiting on you (pulsing, in the
-theme's urgent color), and a panel listing every workflow, most urgent first,
+A bar icon that counts the agent workflows that need you (waiting on an
+answer, stuck or failed; in the theme's urgent color, pulsing while one is
+waiting on an answer), and a panel listing every workflow, most urgent first,
 where you can answer questions and approve permissions with one click, or send
 a finished or stuck agent a follow-up. A desktop notification fires when an
-agent starts waiting on you.
+agent starts needing you.
 
 It is a client of the mission-control daemon's HTTP API, so the daemon must be
 running (`mission-control serve -discover`). It polls `GET /workflows` (every
