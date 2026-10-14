@@ -80,6 +80,10 @@ func Handler(s *Store) http.Handler {
 	return guard(mux)
 }
 
+// Guard applies Handler's loopback-host and JSON-POST rules to another
+// handler (e.g. the hook ingestion endpoint, which also changes state).
+func Guard(next http.Handler) http.Handler { return guard(next) }
+
 // guard enforces the loopback-host and JSON-POST rules described on Handler.
 func guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

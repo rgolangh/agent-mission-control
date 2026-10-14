@@ -1,0 +1,6 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "mission-control",
+  "version": "0.1.0",
+  "description": "Reports this session's state (working, waiting on you, done, stuck) to the local mission-control daemon. Observe-only: never blocks or changes what Claude does."
+}

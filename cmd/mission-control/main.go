@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"mission-control/internal/adapter"
+	"mission-control/internal/claudecode"
 	"mission-control/internal/daemon"
 	"mission-control/internal/discovery"
 	"mission-control/internal/opencode"
@@ -56,6 +57,9 @@ func main() {
 		err = send(os.Args[2:])
 	case "mcp":
 		err = mcpServe(os.Args[2:])
+	case "hook":
+		_ = hook(os.Args[2:])
+		os.Exit(0) // a hook must never fail the agent
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -110,8 +114,9 @@ func serve(args []string) error {
 		fmt.Fprintf(os.Stderr, "%s [mc] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
 	}
 
-	// watch runs one OpenCode adapter until ctx is cancelled.
-	watch := func(ctx context.Context, url string) {
+	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
+	// server's process when discovery found it (0 for -opencode URLs).
+	watch := func(ctx context.Context, url string, pid int) {
 		client := opencode.New(url)
 		client.Password = *password
 		onEvent := func(env opencode.Envelope) {
@@ -125,6 +130,7 @@ func serve(args []string) error {
 			if !ok {
 				return
 			}
+			ev.PID = pid
 			id := store.WorkflowFor(ev) // a subagent's events belong to its parent's workflow
 			rule := ""
 			// A subagent's turn ending is not the workflow's: its idle is dropped anyway.
@@ -160,7 +166,7 @@ func serve(args []string) error {
 	explicit := map[string]bool{}
 	for _, url := range servers {
 		explicit[discovery.Canonical(url)] = true
-		go watch(ctx, url)
+		go watch(ctx, url, 0)
 		logf("watching OpenCode at %s", url)
 	}
 
@@ -181,7 +187,7 @@ func serve(args []string) error {
 					wctx, cancel := context.WithCancel(ctx)
 					active[ep.Key()] = cancel
 					logf("discovered OpenCode %s at %s (pid %d)", ep.Version, ep.URL, ep.PID)
-					go watch(wctx, ep.URL)
+					go watch(wctx, ep.URL, ep.PID)
 				case discovery.Removed:
 					if cancel, ok := active[ep.Key()]; ok {
 						cancel()
@@ -211,7 +217,34 @@ func serve(args []string) error {
 		}()
 	}
 
-	srv := &http.Server{Addr: *listen, Handler: daemon.Handler(store)}
+	// Claude Code: push-based, through `mission-control hook claude-code`.
+	cc := claudecode.New()
+	mux := http.NewServeMux()
+	mux.Handle("/", daemon.Handler(store))
+	mux.Handle("POST /hooks/claude-code", daemon.Guard(claudeHooks(ctx, store, cc, logf)))
+	go func() {
+		tick := time.NewTicker(10 * time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				for id, alive := range cc.Alive() {
+					if alive {
+						continue
+					}
+					cc.Forget(id)
+					ev := adapter.SourceEvent{Adapter: claudecode.Name, SourceID: id, Gone: true, Status: adapter.StatusDone, Timestamp: time.Now()}
+					if store.Apply(ev) {
+						logf("%s:%s gone — claude process exited", claudecode.Name, id)
+					}
+				}
+			}
+		}
+	}()
+
+	srv := &http.Server{Addr: *listen, Handler: mux}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 3*time.Second)

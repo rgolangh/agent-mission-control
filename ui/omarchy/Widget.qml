@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Hyprland
+import Quickshell.Io
 
 // Mission control bar widget for omarchy-shell: a bar icon that counts the
 // workflows waiting on you, and a panel listing every workflow with inline
@@ -63,6 +64,39 @@ Item {
     running: true
     repeat: true
     onTriggered: root.nowMs = Date.now()
+  }
+
+  // ---------------------------------------------------- focus the terminal
+
+  // Each workflow carries `pids`: the agent process and its ancestors
+  // (agent → shell → terminal emulator). The nearest one that owns a
+  // Hyprland window is the agent's terminal.
+  property var _focusChain: []
+
+  function focusTerminal(pids) {
+    if (!pids || !pids.length || focusProc.running) return
+    _focusChain = pids
+    focusProc.running = true
+  }
+
+  Process {
+    id: focusProc
+    command: ["hyprctl", "clients", "-j"]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var clients = []
+        try { clients = JSON.parse(text) } catch (e) { return }
+        for (var i = 0; i < root._focusChain.length; i++) {
+          for (var j = 0; j < clients.length; j++) {
+            if (clients[j].pid === root._focusChain[i]) {
+              Quickshell.execDetached(["hyprctl", "dispatch", "focuswindow", "address:" + clients[j].address])
+              root.close()
+              return
+            }
+          }
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------ formatting
@@ -439,7 +473,7 @@ Item {
 
       Item {
         width: parent.width
-        implicitHeight: titleText.implicitHeight
+        implicitHeight: Math.max(titleText.implicitHeight, termChip.implicitHeight)
 
         Text {
           id: glyph
@@ -453,7 +487,7 @@ Item {
           id: titleText
           anchors.left: glyph.right
           anchors.leftMargin: 8
-          anchors.right: ageText.left
+          anchors.right: termChip.visible ? termChip.left : ageText.left
           anchors.rightMargin: 8
           text: wcard.workflow.title || wcard.workflow.source_id
           color: root.fg
@@ -461,6 +495,17 @@ Item {
           font.pixelSize: 13
           font.bold: true
           elide: Text.ElideRight
+        }
+        Chip {
+          id: termChip
+          anchors.right: ageText.left
+          anchors.rightMargin: 8
+          anchors.verticalCenter: parent.verticalCenter
+          visible: !!wcard.workflow.pids && wcard.workflow.pids.length > 0 && !wcard.workflow.stale
+          label: "\uf120" // terminal
+          implicitWidth: visible ? 26 : 0
+          implicitHeight: 20
+          onActivated: root.focusTerminal(wcard.workflow.pids)
         }
         Text {
           id: ageText
@@ -528,6 +573,19 @@ Item {
           opacity: enabled ? 1 : 0.5
           onActivated: wcard.choose(Object.keys(wcard.picked).join(","))
         }
+      }
+
+      // Observe-only sources (Claude Code): show the choices, answer there.
+      Text {
+        width: parent.width
+        visible: !wcard.canInput && !wcard.workflow.stale && (!!wcard.question || wcard.workflow.status === "needs_input")
+        text: (wcard.question && wcard.question.options && wcard.question.options.length
+                 ? "Options: " + wcard.question.options.join(" · ") + "\n" : "")
+              + "Answer in its terminal" + (wcard.workflow.pids && wcard.workflow.pids.length ? " (\uf120 jumps there)" : "") + "."
+        color: root.dim
+        font.family: root.fontFamily
+        font.pixelSize: 11
+        wrapMode: Text.Wrap
       }
 
       InputLine {

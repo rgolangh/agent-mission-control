@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"mission-control/internal/adapter"
+	"mission-control/internal/procs"
 )
 
 // maxHistory bounds the per-workflow transition log.
@@ -41,7 +42,8 @@ type Workflow struct {
 	StaleReason  string               `json:"stale_reason,omitempty"`
 	StartedAt    time.Time            `json:"started_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
-	LastActivity time.Time            `json:"last_activity"` // last frame of any kind from the source, including streaming output
+	LastActivity time.Time            `json:"last_activity"`
+	PIDs         []int                `json:"pids,omitempty"` // the agent process and its ancestors, nearest first: a UI matches these to window PIDs to focus the terminal // last frame of any kind from the source, including streaming output
 	History      []Transition         `json:"history"`
 
 	input adapter.Responder // how to push input back; nil until an adapter binds one
@@ -149,6 +151,9 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	}
 	if ev.Location != "" {
 		w.Location = ev.Location
+	}
+	if ev.PID > 0 && (len(w.PIDs) == 0 || w.PIDs[0] != ev.PID) {
+		w.PIDs = procs.Ancestors(ev.PID)
 	}
 	if ev.Ask != nil {
 		w.setAsk(*ev.Ask)
@@ -410,6 +415,7 @@ func clone(w *Workflow) Workflow {
 	c := *w
 	c.History = append([]Transition(nil), w.History...)
 	c.Pending = append([]adapter.Ask(nil), w.Pending...)
+	c.PIDs = append([]int(nil), w.PIDs...)
 	return c
 }
 
