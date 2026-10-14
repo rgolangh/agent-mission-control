@@ -41,49 +41,38 @@ with no activity at all for 15 minutes is flagged as hung.
 - Go 1.27+ to build (standard library only, no third-party modules)
 - OpenCode and/or Claude Code
 
-## Install (from source)
+## Install
+
+Download the binary for your machine from the
+[latest release](https://github.com/rgolangh/agent-mission-control/releases/latest),
+check it, and let it install itself:
 
 ```bash
-CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/mission-control@latest
+curl -LO https://github.com/rgolangh/agent-mission-control/releases/latest/download/mission-control-linux-amd64
+curl -LO https://github.com/rgolangh/agent-mission-control/releases/latest/download/SHA256SUMS
+sha256sum --check --ignore-missing SHA256SUMS
+chmod +x mission-control-linux-amd64
+./mission-control-linux-amd64 install --dry-run   # see what it will do
+./mission-control-linux-amd64 install
+mission-control doctor
 ```
 
-The plugins below are files in this repository; clone it to link them:
+Or from source: `CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/mission-control@latest`,
+then `mission-control install`.
 
-```bash
-git clone https://github.com/rgolangh/agent-mission-control && cd agent-mission-control
-```
+`install` puts in place, for your user only:
+- the binary, in `~/.local/bin`;
+- a systemd user service, which it starts;
+- the OpenCode bridge plugin, if OpenCode is installed;
+- the Claude Code hooks plugin, if Claude Code is installed;
+- the desktop UI it detects: the omarchy-shell widget or the GNOME Shell extension.
 
-Run the daemon as a systemd user service:
-
-```ini
-# ~/.config/systemd/user/mission-control.service
-[Unit]
-Description=mission-control: agent workflow state daemon
-
-[Service]
-ExecStart=%h/.local/bin/mission-control serve -discover
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-```
-
-```bash
-systemctl --user enable --now mission-control
-```
-
-Connect your agents:
-
-```bash
-# OpenCode: every new `opencode` becomes discoverable
-mkdir -p ~/.config/opencode/plugins
-ln -s "$PWD/integrations/opencode/mission-control-bridge.js" ~/.config/opencode/plugins/
-
-# Claude Code: hooks plugin (loads as mission-control@skills-dir in new sessions)
-ln -s "$PWD/integrations/claude-code" ~/.claude/skills/mission-control
-```
-
-Omarchy desktop widget: see [ui/omarchy/README.md](ui/omarchy/README.md).
+It only adds files and never edits your existing configuration. It refuses to
+overwrite anything it didn't write (unless `--force`) and leaves symlinks
+alone. Commands that change another tool's settings, like enabling a shell
+extension, are printed for you to run, or run with `--enable`. Use
+`--only opencode,claude-code` to pick components. `mission-control uninstall`
+removes exactly what was installed and unchanged.
 
 ## Use
 
@@ -113,8 +102,7 @@ analysis is in [docs/threat-model.md](docs/threat-model.md).
 ## Status
 
 Early and moving fast; interfaces may change. Tested against OpenCode 1.18
-and Claude Code 2.1 on Linux. Planned: packaging (release
-binaries, `mission-control install`), a GNOME Shell extension, more adapters
+and Claude Code 2.1 on Linux. Planned: a GNOME Shell extension, more adapters
 (GitHub PRs, Jira) linked to the sessions that produced them, and a shared
 web view.
 

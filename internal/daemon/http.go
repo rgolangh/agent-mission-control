@@ -45,7 +45,7 @@ type SendRequest struct {
 func Handler(s *Store) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "version": Version})
 	})
 	mux.HandleFunc("GET /workflows", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, WorkflowList{Workflows: s.List()})

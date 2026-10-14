@@ -13,6 +13,9 @@ import (
 	"github.com/rgolangh/agent-mission-control/internal/procs"
 )
 
+// Version is reported by GET /healthz; main sets it from its build version.
+var Version = "dev"
+
 // maxHistory bounds the per-workflow transition log.
 const maxHistory = 20
 

@@ -62,6 +62,14 @@ func main() {
 		err = send(os.Args[2:])
 	case "mcp":
 		err = mcpServe(os.Args[2:])
+	case "install":
+		err = installCmd(os.Args[2:])
+	case "uninstall":
+		err = uninstallCmd(os.Args[2:])
+	case "doctor":
+		err = doctor(os.Args[2:])
+	case "version", "--version":
+		err = versionCmd(os.Args[2:])
 	case "hook":
 		_ = hook(os.Args[2:])
 		os.Exit(0) // a hook must never fail the agent
@@ -85,6 +93,11 @@ func usage() {
   mission-control answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
   mission-control send   [-addr URL] <id> <text...>          send free text
   mission-control mcp    [-addr URL]                         MCP server on stdio (for agents)
+  mission-control install   [-dry-run] [-only a,b] [-enable] [-force]
+                                    binary, user service, agent plugins, desktop UI
+  mission-control uninstall [-dry-run] [-force]             remove what install wrote
+  mission-control doctor                                    check the whole setup
+  mission-control version
 <id> is the ID column from status (a unique suffix is enough). <choice> is an
 option's number or label; for a permission: once | always | reject.
 `)
@@ -98,6 +111,7 @@ func (l *stringList) String() string     { return strings.Join(*l, ",") }
 func (l *stringList) Set(v string) error { *l = append(*l, v); return nil }
 
 func serve(args []string) error {
+	daemon.Version = version
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", defaultListen, "TCP address for token-authenticated clients such as the desktop widget (empty disables)")
 	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for the OpenCode servers, if they require one")
