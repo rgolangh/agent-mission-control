@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/daemon"
-	"mission-control/internal/mcp"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/mcp"
 )
 
 // confirmingResponder plays the source: an answer is acknowledged by the

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 func TestJudge(t *testing.T) {

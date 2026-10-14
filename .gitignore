@@ -10,3 +10,6 @@
 .vscode/
 *.swp
 .DS_Store
+
+# Local design notes for coding agents (not published)
+CLAUDE.md

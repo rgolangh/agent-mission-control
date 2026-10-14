@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/daemon"
-	"mission-control/internal/mcp"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/mcp"
 )
 
 const mcpInstructions = `mission-control tracks the state of the user's coding-agent workflows (e.g. OpenCode sessions in terminal tabs) and can push input back into them.

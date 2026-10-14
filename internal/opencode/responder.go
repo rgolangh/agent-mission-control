@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Client is OpenCode's adapter.Responder.

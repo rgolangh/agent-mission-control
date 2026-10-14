@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"mission-control/internal/claudecode"
-	"mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/claudecode"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
 )
 
 // claudeHooks ingests Claude Code hook payloads posted by

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Envelope is the wire shape of every frame OpenCode sends on GET /event:

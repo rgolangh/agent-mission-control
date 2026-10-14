@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // tailBytes is how much of a transcript is read. A turn's end, the latest

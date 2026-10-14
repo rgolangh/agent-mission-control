@@ -30,13 +30,13 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/claudecode"
-	"mission-control/internal/daemon"
-	"mission-control/internal/discovery"
-	"mission-control/internal/opencode"
-	"mission-control/internal/paths"
-	"mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/claudecode"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/discovery"
+	"github.com/rgolangh/agent-mission-control/internal/opencode"
+	"github.com/rgolangh/agent-mission-control/internal/paths"
+	"github.com/rgolangh/agent-mission-control/internal/procs"
 )
 
 const (

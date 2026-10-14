@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 type captured struct{ method, path, body string }

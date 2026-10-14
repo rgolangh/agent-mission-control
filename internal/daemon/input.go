@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Sentinel errors, so the HTTP layer can pick a status code with errors.Is.

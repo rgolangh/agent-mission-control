@@ -19,7 +19,7 @@ import (
 	"syscall"
 	"time"
 
-	"mission-control/internal/opencode"
+	"github.com/rgolangh/agent-mission-control/internal/opencode"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Verdict is the daemon's call on a finished turn.

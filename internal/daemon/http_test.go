@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 func do2(t *testing.T, h http.Handler, method, target, host, ctype, body string) *httptest.ResponseRecorder {

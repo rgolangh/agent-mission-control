@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
 )
 
 // parseFlags parses fs and returns the remaining positional args. Flags must

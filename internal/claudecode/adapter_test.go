@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 func hook(t *testing.T, js string) Hook {

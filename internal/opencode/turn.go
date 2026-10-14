@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Client reports how a session's last turn ended.

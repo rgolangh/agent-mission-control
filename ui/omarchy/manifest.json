@@ -4,7 +4,7 @@
   "name": "Mission control",
   "version": "0.1.0",
   "author": "mission-control",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "description": "State of your coding-agent workflows from the mission-control daemon: who is working, who is waiting on you, and answer them from the bar.",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Widget.qml" },

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Frames below are trimmed copies of real /event output from opencode 1.18.30.

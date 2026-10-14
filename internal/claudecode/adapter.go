@@ -25,8 +25,8 @@ import (
 	"sync"
 	"time"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/procs"
 )
 
 // Name is the adapter name: workflows are "claude-code:<session_id>".

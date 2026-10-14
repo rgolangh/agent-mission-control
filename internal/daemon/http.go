@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"mission-control/internal/paths"
+	"github.com/rgolangh/agent-mission-control/internal/paths"
 )
 
 // WorkflowList is the body of GET /workflows.

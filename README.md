@@ -44,8 +44,13 @@ with no activity at all for 15 minutes is flagged as hung.
 ## Install (from source)
 
 ```bash
-git clone <this repo> && cd mission-control
-CGO_ENABLED=0 go build -trimpath -o ~/.local/bin/mission-control ./cmd/mission-control
+CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/mission-control@latest
+```
+
+The plugins below are files in this repository; clone it to link them:
+
+```bash
+git clone https://github.com/rgolangh/agent-mission-control && cd agent-mission-control
 ```
 
 Run the daemon as a systemd user service:
@@ -120,5 +125,6 @@ go vet ./... && go test -race ./...
 QT_QPA_PLATFORM=offscreen qs -p ui/omarchy/test   # headless widget harness
 ```
 
-[CLAUDE.md](CLAUDE.md) is the design log: why things are shaped the way they
-are, and what was verified against which tool version.
+## License
+
+[Apache-2.0](LICENSE)

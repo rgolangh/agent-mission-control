@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"mission-control/internal/paths"
+	"github.com/rgolangh/agent-mission-control/internal/paths"
 )
 
 // BridgeCredential reads the token the mission-control bridge plugin wrote

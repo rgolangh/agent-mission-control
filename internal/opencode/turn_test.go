@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // Shapes trimmed from GET /session/{id}/message on opencode 1.18.33.

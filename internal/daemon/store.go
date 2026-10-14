@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/procs"
 )
 
 // maxHistory bounds the per-workflow transition log.

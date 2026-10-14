@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"mission-control/internal/claudecode"
-	"mission-control/internal/daemon"
-	"mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/claudecode"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/procs"
 )
 
 // hookTimeout bounds how long a hook may delay the agent. Claude Code waits

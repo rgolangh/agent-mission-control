@@ -6,8 +6,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"mission-control/internal/adapter"
-	"mission-control/internal/daemon"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/daemon"
 )
 
 // Response bodies are copies of real opencode 1.18.30 output, captured while

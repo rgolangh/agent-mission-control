@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // live applies an event and binds the workflow to an origin, as the daemon does.

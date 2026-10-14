@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
 // fakeResponder records what the daemon delivers.
