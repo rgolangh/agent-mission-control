@@ -28,7 +28,9 @@ you (or an orchestrating agent, over MCP) answer it.
 Ways to look at it:
 - **CLI:** `status`, `show`, `answer`, `send`.
 - **MCP server:** for an orchestrating agent.
-- **Desktop widget:** for [Omarchy](https://omarchy.org)'s shell, with a bar icon, a panel, notifications, and a jump to the agent's terminal.
+- **Desktop UI:** a widget for [Omarchy](https://omarchy.org)'s shell, or a
+  [GNOME Shell extension](ui/gnome/README.md). Both have an indicator, the
+  workflow list, notifications, and a jump to the agent's terminal.
 
 **Done vs stuck vs waiting** is decided by ordered, evidence-quoting rules
 (no LLM). They read how the turn ended: errors, finish reason, a closing
@@ -102,7 +104,7 @@ analysis is in [docs/threat-model.md](docs/threat-model.md).
 ## Status
 
 Early and moving fast; interfaces may change. Tested against OpenCode 1.18
-and Claude Code 2.1 on Linux. Planned: a GNOME Shell extension, more adapters
+and Claude Code 2.1 on Linux. Planned: more adapters
 (GitHub PRs, Jira) linked to the sessions that produced them, and a shared
 web view.
 

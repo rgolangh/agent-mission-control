@@ -1,0 +1,12 @@
+.mission-control-count {
+  padding-left: 4px;
+  font-weight: bold;
+}
+
+.mission-control-attention {
+  color: #ff7b63;
+}
+
+.mission-control-entry {
+  min-width: 22em;
+}

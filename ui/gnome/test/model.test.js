@@ -1,0 +1,42 @@
+// gjs -m ui/gnome/test/model.test.js
+import * as m from '../model.js';
+
+let failed = 0;
+const eq = (got, want, what) => {
+    const ok = JSON.stringify(got) === JSON.stringify(want);
+    if (!ok) {
+        failed++;
+        printerr(`FAIL ${what}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+    }
+};
+
+const wfs = [
+    {id: 'a', status: 'done', updated_at: '2026-10-14T10:00:00.123456789Z'},
+    {id: 'b', status: 'needs_input', updated_at: '2026-10-14T09:00:00Z', pending: [{id: 'q1', questions: [{question: 'Which?', options: ['x', 'y']}]}], capabilities: {can_receive_input: true}},
+    {id: 'c', status: 'running', updated_at: '2026-10-14T11:00:00Z'},
+    {id: 'd', status: 'stuck', updated_at: '2026-10-14T08:00:00Z'},
+    {id: 'e', status: 'needs_input', updated_at: '2026-10-14T12:00:00Z', stale: true},
+];
+eq(m.sortByUrgency(wfs).map(w => w.id), ['e', 'b', 'd', 'c', 'a'], 'urgency order');
+eq(m.counts(wfs), {needs_input: 1, stuck: 1, failed: 0, running: 1, done: 1, attention: 2}, 'counts skip stale');
+eq(m.summary(wfs), '1 waiting on you · 1 stuck · 1 running', 'summary');
+eq(m.summary([]), 'no workflows', 'empty summary');
+eq(m.age('2026-10-14T10:00:00.123456789Z', Date.parse('2026-10-14T10:05:00Z')), '5m', 'nanosecond timestamps (4m59.9s rounds to 5m)');
+eq(m.tilde('/home/u/src/x', '/home/u'), '~/src/x', 'tilde');
+eq(m.statusLabel(wfs[4]), 'needs input · stale', 'stale label');
+eq(m.firstQuestion(wfs[1]).question.question, 'Which?', 'first question');
+eq(m.canInput(wfs[1]), true, 'can input');
+eq(m.canInput({...wfs[1], stale: true}), false, 'stale cannot input');
+eq(m.clean('\u001b]0;pwned\u0007ok\nline'), ']0;pwnedok\nline', 'control chars stripped, newline kept');
+eq(m.clean('x'.repeat(10), 5), 'xxxx…', 'length cap');
+
+const first = m.newlyNeedingYou(wfs, null);
+eq(first.fresh.length, 0, 'first poll notifies nothing');
+const again = m.newlyNeedingYou(wfs, first.next);
+eq(again.fresh.length, 0, 'unchanged poll notifies nothing');
+const changed = m.newlyNeedingYou([{...wfs[2], status: 'stuck'}, ...wfs.slice(0, 2)], again.next);
+eq(changed.fresh.map(w => w.id), ['c'], 'a workflow that became stuck notifies once');
+
+print(failed ? `${failed} failure(s)` : 'model: all passed');
+if (failed)
+    imports.system.exit(1);

@@ -149,3 +149,31 @@ func TestDryRunChangesNothing(t *testing.T) {
 		t.Error(out.String())
 	}
 }
+
+// Regression: uninstalling only the GNOME extension once stopped and
+// disabled the user's real daemon service.
+func TestUninstallLeavesServiceAloneUnlessItInstalledIt(t *testing.T) {
+	e, ran, _ := testEnv(t)
+	e.Assets.(fstest.MapFS)["ui/gnome/metadata.json"] = &fstest.MapFile{Data: []byte("{}")}
+	if err := Install(e, "v1", Options{Only: map[string]bool{"gnome": true}}); err != nil {
+		t.Fatal(err)
+	}
+	*ran = nil
+	if err := Uninstall(e, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range *ran {
+		if strings.HasPrefix(c, "systemctl") {
+			t.Errorf("uninstall ran %q without having installed the service", c)
+		}
+	}
+	// With the daemon installed, uninstall does stop it.
+	if err := Install(e, "v1", Options{Only: map[string]bool{"daemon": true}}); err != nil {
+		t.Fatal(err)
+	}
+	*ran = nil
+	Uninstall(e, Options{})
+	if !strings.Contains(strings.Join(*ran, "\n"), "systemctl --user disable --now mission-control.service") {
+		t.Errorf("service installed by us must be stopped: %v", *ran)
+	}
+}

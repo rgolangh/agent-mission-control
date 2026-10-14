@@ -31,7 +31,9 @@ jobs:
               -ldflags "-s -w -X main.version=$VERSION" \
               -o dist/mission-control-linux-$arch ./cmd/mission-control
           done
-          cd dist && sha256sum mission-control-* > SHA256SUMS
+          (cd ui/gnome && zip -q ../../dist/mission-control@rgolangh.github.io.shell-extension.zip \
+            metadata.json extension.js client.js model.js stylesheet.css)
+          cd dist && sha256sum mission-control-* *.zip > SHA256SUMS
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}

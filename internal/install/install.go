@@ -304,7 +304,11 @@ func Install(e Env, version string, opt Options) error {
 	var chosen []Component
 	for _, c := range comps {
 		if !selected(c, opt) {
-			fmt.Fprintf(e.Out, "- %-12s skipped (%s)\n", c.Name, c.Why)
+			why := c.Why
+			if len(opt.Only) > 0 {
+				why = "not selected"
+			}
+			fmt.Fprintf(e.Out, "- %-12s skipped (%s)\n", c.Name, why)
 			continue
 		}
 		if len(c.Files) == 0 {
@@ -383,7 +387,10 @@ func Uninstall(e Env, opt Options) error {
 		fmt.Fprintln(e.Out, "nothing installed by mission-control install")
 		return nil
 	}
-	if !opt.DryRun && e.Look != nil && e.Look("systemctl") {
+	// Only touch the service if install put it there: an uninstall of, say,
+	// just the GNOME extension must not stop a daemon set up some other way.
+	_, ownsUnit := m.Files[e.unitPath()]
+	if ownsUnit && !opt.DryRun && e.Look != nil && e.Look("systemctl") {
 		_ = e.Run("systemctl", "--user", "disable", "--now", "mission-control.service")
 	}
 	paths := make([]string, 0, len(m.Files))
@@ -422,7 +429,7 @@ func Uninstall(e Env, opt Options) error {
 	} else if err := e.saveManifest(m); err != nil {
 		return err
 	}
-	if e.Look != nil && e.Look("systemctl") {
+	if ownsUnit && e.Look != nil && e.Look("systemctl") {
 		_ = e.Run("systemctl", "--user", "daemon-reload")
 	}
 	return nil

@@ -28,3 +28,7 @@ jobs:
         run: go test -race ./...
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/mission-control
+      - name: GNOME extension model tests (gjs)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq gjs
+          gjs -m ui/gnome/test/model.test.js
