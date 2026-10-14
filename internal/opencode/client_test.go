@@ -18,9 +18,9 @@ func TestSnapshotReplaysPendingAsksAfterBusy(t *testing.T) {
 		case "/session/status":
 			w.Write([]byte(`{"ses_1":{"type":"busy"},"ses_2":{"type":"busy"}}`))
 		case "/session/ses_1":
-			w.Write([]byte(`{"id":"ses_1","title":"Fix login bug","directory":"/home/roy/proj"}`))
+			w.Write([]byte(`{"id":"ses_1","title":"Fix login bug","directory":"/home/user/proj"}`))
 		case "/session/ses_2":
-			w.Write([]byte(`{"id":"ses_2","title":"Write docs","directory":"/home/roy/docs"}`))
+			w.Write([]byte(`{"id":"ses_2","title":"Write docs","directory":"/home/user/docs"}`))
 		case "/permission":
 			w.Write([]byte(`[]`))
 		case "/question":
@@ -52,7 +52,7 @@ func TestSnapshotReplaysPendingAsksAfterBusy(t *testing.T) {
 		t.Errorf("ses_2 (plain busy) = %q, want running", busy.Status)
 	}
 	// Titles arrive as metadata-only frames after the status frames.
-	if blocked.Title != "Fix login bug" || busy.Title != "Write docs" || busy.Location != "/home/roy/docs" {
+	if blocked.Title != "Fix login bug" || busy.Title != "Write docs" || busy.Location != "/home/user/docs" {
 		t.Errorf("titles/locations = %q %q %q", blocked.Title, busy.Title, busy.Location)
 	}
 }

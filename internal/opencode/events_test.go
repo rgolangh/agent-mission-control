@@ -9,13 +9,13 @@ import (
 
 // Frames below are trimmed copies of real /event output from opencode 1.18.30.
 func TestNormalizeSessionLabels(t *testing.T) {
-	created := `{"type":"session.created","properties":{"sessionID":"ses_1","info":{"id":"ses_1","title":"New session - 2026","directory":"/home/roy/proj"}}}`
-	updated := `{"type":"session.updated","properties":{"sessionID":"ses_1","info":{"id":"ses_1","title":"Fix login bug","directory":"/home/roy/proj"}}}`
+	created := `{"type":"session.created","properties":{"sessionID":"ses_1","info":{"id":"ses_1","title":"New session - 2026","directory":"/home/user/proj"}}}`
+	updated := `{"type":"session.updated","properties":{"sessionID":"ses_1","info":{"id":"ses_1","title":"Fix login bug","directory":"/home/user/proj"}}}`
 
 	var env Envelope
 	json.Unmarshal([]byte(created), &env)
 	ev, ok := Normalize(env)
-	if !ok || ev.Status != adapter.StatusRunning || ev.Title != "New session - 2026" || ev.Location != "/home/roy/proj" {
+	if !ok || ev.Status != adapter.StatusRunning || ev.Title != "New session - 2026" || ev.Location != "/home/user/proj" {
 		t.Errorf("session.created = ok:%v %+v", ok, ev)
 	}
 

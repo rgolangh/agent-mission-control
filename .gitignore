@@ -1,0 +1,12 @@
+# Built binaries
+/mission-control
+/opencode-adapter
+/dist/
+*.test
+*.out
+
+# Editor and OS noise
+.idea/
+.vscode/
+*.swp
+.DS_Store
