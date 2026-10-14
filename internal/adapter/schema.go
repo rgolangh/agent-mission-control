@@ -1,0 +1,83 @@
+// Package adapter defines the tool-agnostic schema every per-tool adapter
+// (OpenCode, Claude Code, GitHub, Jira, ...) normalizes its events into.
+// Nothing in this file should ever import a tool-specific package.
+package adapter
+
+import (
+	"context"
+	"time"
+)
+
+// Status is the small set of states the dashboard actually renders.
+// Deliberately coarse: fine-grained detail belongs in Message, not here.
+type Status string
+
+const (
+	StatusRunning    Status = "running"     // agent is actively working
+	StatusNeedsInput Status = "needs_input" // agent is blocked on you specifically
+	StatusStuck      Status = "stuck"       // agent finished a turn with no clear next step
+	StatusDone       Status = "done"        // agent finished the workflow
+	StatusFailed     Status = "failed"      // agent errored out
+	StatusUnknown    Status = "unknown"     // adapter saw something it doesn't understand yet
+)
+
+// Capabilities tells the dashboard what it's allowed to offer for this source.
+// Not every source can receive pushed-back input (e.g. a Jira ticket can't).
+type Capabilities struct {
+	CanReceiveInput bool `json:"can_receive_input"` // true if SendInput below will actually do something
+}
+
+// SourceEvent is one normalized update from one adapter about one source.
+// This is the only struct that crosses the adapter -> event bus boundary.
+type SourceEvent struct {
+	Adapter      string       `json:"adapter"`               // "opencode", "github", "jira", ...
+	SourceID     string       `json:"source_id"`             // adapter-scoped id, e.g. opencode session id
+	WorkflowID   string       `json:"workflow_id,omitempty"` // filled in by the daemon's correlation step, not the adapter
+	Status       Status       `json:"status"`                // empty = metadata-only update: refresh Title/Location, leave state alone
+	Message      string       `json:"message"`               // short human-readable summary for the dashboard
+	Title        string       `json:"title,omitempty"`       // what the source calls itself, e.g. a session title
+	Location     string       `json:"location,omitempty"`    // where it lives, e.g. working directory
+	Timestamp    time.Time    `json:"timestamp"`
+	Capabilities Capabilities `json:"capabilities"`
+	Ask          *Ask         `json:"ask,omitempty"`      // set when the source became blocked on something the user can answer
+	Resolves     string       `json:"resolves,omitempty"` // id of an Ask that was answered or rejected
+	Gone         bool         `json:"gone,omitempty"`     // the source no longer exists (e.g. deleted); the daemon drops its workflow
+	Raw          any          `json:"raw,omitempty"`      // original payload, kept for debugging / forward-compat
+}
+
+// AskKind says what sort of request an Ask is.
+type AskKind string
+
+const (
+	AskKindQuestion   AskKind = "question"   // the agent asked the user something
+	AskKindPermission AskKind = "permission" // the agent wants approval to do something
+)
+
+// AskQuestion is one question inside an Ask. A permission ask is modelled as a
+// single question whose Options are the allowed replies, so every ask is
+// answered the same way: one list of chosen strings per question.
+type AskQuestion struct {
+	Question string   `json:"question"`
+	Header   string   `json:"header,omitempty"`
+	Options  []string `json:"options,omitempty"`
+	Multiple bool     `json:"multiple,omitempty"`  // more than one option may be chosen
+	FreeText bool     `json:"free_text,omitempty"` // an answer outside Options is accepted
+}
+
+// Ask is a pending request a source is blocked on. ID is adapter-scoped and is
+// what the adapter needs to deliver the answer.
+type Ask struct {
+	ID        string        `json:"id"`
+	Kind      AskKind       `json:"kind"`
+	Questions []AskQuestion `json:"questions"`
+}
+
+// Responder is implemented by adapters whose sources can receive input.
+// Pushing input back goes through the same adapter that reported the state,
+// because only it knows how to deliver it (API call, pty write, chat send).
+type Responder interface {
+	// Answer delivers answers (one list per ask question) to a pending ask.
+	Answer(ctx context.Context, sourceID string, ask Ask, answers [][]string) error
+	// SendText sends free text into the source as if the user had typed it.
+	SendText(ctx context.Context, sourceID, text string) error
+}
