@@ -32,6 +32,7 @@ import (
 	"mission-control/internal/daemon"
 	"mission-control/internal/discovery"
 	"mission-control/internal/opencode"
+	"mission-control/internal/procs"
 )
 
 const (
@@ -193,6 +194,17 @@ func serve(args []string) error {
 						cancel()
 						delete(active, ep.Key())
 						logf("OpenCode at %s (pid %d) went away; stopped watching", ep.URL, ep.PID)
+						if !procs.Alive(ep.PID) {
+							// The process exited (tab closed): its sessions are over,
+							// not just unreachable. Wait for watch to mark them stale
+							// first, so the drop wins.
+							go func(url string) {
+								time.Sleep(time.Second)
+								if n := store.DropOrigin(url); n > 0 {
+									logf("dropped %d workflow(s) of exited OpenCode at %s", n, url)
+								}
+							}(ep.URL)
+						}
 					}
 				}
 			}

@@ -330,6 +330,22 @@ func (s *Store) MarkStale(origin, reason string) {
 	}
 }
 
+// DropOrigin removes every workflow reported by origin: its process has
+// exited (a closed terminal tab), so unlike MarkStale there is nothing to
+// come back. Returns how many were removed.
+func (s *Store) DropOrigin(origin string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for id, w := range s.m {
+		if w.Origin == origin {
+			delete(s.m, id)
+			n++
+		}
+	}
+	return n
+}
+
 // BeginSync starts reconciling an origin after (re)connecting: the adapter is
 // about to replay everything that is live on it. Workflows of that origin that
 // do not show up before EndSync are no longer live there.

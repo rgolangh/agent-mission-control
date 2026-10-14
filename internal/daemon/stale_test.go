@@ -108,3 +108,17 @@ func TestEndSyncWithoutBeginOnlyClearsStale(t *testing.T) {
 		t.Errorf("EndSync without BeginSync must not reconcile: %+v", w)
 	}
 }
+
+func TestDropOriginRemovesOnlyThatOrigin(t *testing.T) {
+	s := NewStore()
+	t0 := time.Now()
+	live(s, ev("a", adapter.StatusRunning, "w", t0), "o1")
+	live(s, ev("b", adapter.StatusNeedsInput, "q", t0), "o1")
+	live(s, ev("c", adapter.StatusRunning, "w", t0), "o2")
+	if n := s.DropOrigin("o1"); n != 2 {
+		t.Fatalf("dropped %d, want 2", n)
+	}
+	if l := s.List(); len(l) != 1 || l[0].SourceID != "c" {
+		t.Errorf("left %+v", l)
+	}
+}
