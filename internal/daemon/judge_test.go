@@ -36,7 +36,7 @@ func TestJudge(t *testing.T) {
 		{"anything else", reply("Done. Anything else?"), adapter.StatusDone, "greeting"},
 		{"choice question", reply("I found two session stores.\n\nShould I use Redis or Postgres?"), adapter.StatusNeedsInput, "question"},
 		{"question then options", reply("Two ways to fix this. Which do you prefer?\n\n1. Patch the parser\n2. Rewrite it"), adapter.StatusNeedsInput, "question"},
-		{"colon then options", reply("There are two approaches, pick one:\n- **A**: keep the cache\n- **B**: drop it"), adapter.StatusNeedsInput, "question"},
+		{"colon then options", reply("There are two approaches, pick one:\n- **A**: keep the cache\n- **B**: drop it"), adapter.StatusNeedsInput, "request"},
 		{"permission to proceed", reply("The migration will drop the users table. Would you like me to proceed?"), adapter.StatusNeedsInput, "question"},
 		{"bold question", reply("**Should I delete the old config files?**"), adapter.StatusNeedsInput, "question"},
 		{"offer", reply("Implemented the retry logic and added tests; all pass.\n\nWant me to also update the README?"), adapter.StatusDone, "offer"},
@@ -69,6 +69,41 @@ func TestJudge(t *testing.T) {
 	}
 	for _, c := range cases {
 		v := Judge(c.turn)
+		if v.Status != c.status || v.Rule != c.rule {
+			t.Errorf("%s: got %s/%s (%q), want %s/%s", c.name, v.Status, v.Rule, v.Message, c.status, c.rule)
+		}
+	}
+}
+
+// Real closing text of turns this project's own development session
+// misjudged (2026-10-14 replay with `mission-control judge -all`), trimmed.
+// Long, structured messages (headline, lists, questions inside list items)
+// are how capable agents write, and what the first rules missed.
+func TestJudgeRealStructuredMessages(t *testing.T) {
+	cases := []struct {
+		name   string
+		text   string
+		status adapter.Status
+		rule   string
+	}{
+		{"decisions as a numbered list of questions", `Packaging has five pieces; most port trivially.
+
+A few questions shape what I'd build:
+
+1. **What desktop does the Fedora machine run?** GNOME, KDE, or a tiling window manager. This decides the widget question.
+2. **Which agents do you use there?** Claude Code, OpenCode, or both.
+3. **Is the code going on GitHub?** The repo is local-only right now.`, adapter.StatusNeedsInput, "question"},
+		{"list intro says what it needs from you", "`install` could also run the plugin steps for you.\n\nTo build this I need:\n- Your GitHub username or org, for the module path.\n- The output of `gnome-shell --version` on the Fedora machine.\n- Whether I should go ahead and build it all.", adapter.StatusNeedsInput, "request"},
+		{"two things need your call", "I didn't work on the diagram package. Two things need your call:\n\n1. **Install the widget into your live bar?** That changes your `shell.json`.\n2. **Done vs. stuck:** may the daemon call an LLM? If not, I can build better rules.", adapter.StatusNeedsInput, "question"},
+		{"waits for a confirmation", "4. **`CLAUDE.md`.** Keep it public as-is, trim it, or drop it.\n\nAfter that, creating the repo is one command. I'll run the create step once you confirm the name.", adapter.StatusNeedsInput, "request"},
+		{"blocked headline, then waits", "The repo is ready to push, but I couldn't push it: your token can't see the repo, so GitHub answers \"not found\".\n\n**Done while waiting:**\n- **Module path:** renamed.\n- **License:** Apache-2.0.\n- **Author:** rewritten.\n- **Remote:** set.\n\nOnce access works, tell me and I'll check the repo is private and empty, then push. Or run it yourself with `git push -u origin main`.", adapter.StatusNeedsInput, "request"},
+		{"blocked headline only", "I couldn't push the branch: the remote rejected the token.\n\nEverything else is committed:\n- Tests pass.\n- Docs updated.\n- Release workflow added.\n- CI pinned.\n- Changelog written.\n- Version bumped.\n- Tag prepared.", adapter.StatusStuck, "blocker"},
+		{"limitation that turned out fine", "- **Your other session** shows as **needs_input: waiting on a permission prompt**. That was one of the interactive cases I couldn't test headlessly, and it works.\n\nTwo small things to know:\n- **Plain opencode and --port both work.**\n- **If an upgrade breaks the bridge**, it prints a warning.", adapter.StatusDone, "finished"},
+		{"plain summary list stays done", "All six findings are fixed and verified live.\n\n- H1: bridge requires a token.\n- M1: hook payloads minimized.\n- M4: plain text everywhere.", adapter.StatusDone, "finished"},
+		{"rhetorical question list item is still a question", "Here is the plan:\n\n1. Ship the fix.\n2. Should we also backport it?", adapter.StatusNeedsInput, "question"},
+	}
+	for _, c := range cases {
+		v := Judge(adapter.TurnEnd{Text: c.text, Finish: "stop", Replied: true})
 		if v.Status != c.status || v.Rule != c.rule {
 			t.Errorf("%s: got %s/%s (%q), want %s/%s", c.name, v.Status, v.Rule, v.Message, c.status, c.rule)
 		}

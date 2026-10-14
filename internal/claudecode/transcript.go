@@ -69,7 +69,16 @@ func (e entry) isPrompt() bool {
 			return false
 		}
 	}
-	return e.text() != "" && !isInterrupt(e.text())
+	t := e.text()
+	return t != "" && !isInterrupt(t) && !isLocalCommand(t)
+}
+
+// isLocalCommand: slash commands Claude Code handles itself (/reload-plugins,
+// /model, ...) are recorded as user entries but expect no reply from the
+// model, so they don't start a turn.
+func isLocalCommand(s string) bool {
+	return strings.HasPrefix(s, "<command-name>") || strings.HasPrefix(s, "<command-message>") ||
+		strings.HasPrefix(s, "<local-command-")
 }
 
 // Claude Code records an Esc/Ctrl-C as a user message with this text
@@ -238,4 +247,35 @@ func latestTodos(main []entry) (total, open int) {
 		}
 	}
 	return 0, 0
+}
+
+// Turn is one turn of a transcript: the person's prompt and the evidence
+// for how the agent's reply ended.
+type Turn struct {
+	Prompt string
+	End    adapter.TurnEnd
+}
+
+// TurnsFromFile reads a whole transcript and returns every completed turn,
+// oldest first, for replaying the done/stuck rules (`mission-control judge`).
+func TurnsFromFile(path string) ([]Turn, error) {
+	entries, err := readTail(path, 1<<40)
+	if err != nil {
+		return nil, err
+	}
+	var starts []int
+	for i, e := range entries {
+		if e.isPrompt() {
+			starts = append(starts, i)
+		}
+	}
+	var turns []Turn
+	for k, s := range starts {
+		end := len(entries)
+		if k+1 < len(starts) {
+			end = starts[k+1]
+		}
+		turns = append(turns, Turn{Prompt: entries[s].text(), End: turnFromTranscript(entries[:end])})
+	}
+	return turns, nil
 }

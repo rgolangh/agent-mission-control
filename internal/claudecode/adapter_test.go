@@ -260,3 +260,15 @@ func TestMinimizeDropsContent(t *testing.T) {
 		t.Error("AskUserQuestion input must survive")
 	}
 }
+
+func TestLocalSlashCommandsAreNotTurns(t *testing.T) {
+	es, err := readTail(writeTranscript(t, prompt, answer("Done."),
+		`{"type":"user","message":{"content":"<command-name>/reload-plugins</command-name>\n<command-message>reload-plugins</command-message>"}}`,
+		`{"type":"user","message":{"content":"<local-command-stdout>Reloaded: 1 plugin</local-command-stdout>"}}`), tailBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := turnFromTranscript(es); !got.Replied || got.Text != "Done." {
+		t.Errorf("a slash command must not open a new, unanswered turn: %+v", got)
+	}
+}

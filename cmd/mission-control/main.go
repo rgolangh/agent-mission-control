@@ -68,6 +68,8 @@ func main() {
 		err = uninstallCmd(os.Args[2:])
 	case "doctor":
 		err = doctor(os.Args[2:])
+	case "judge":
+		err = judgeCmd(os.Args[2:])
 	case "version", "--version":
 		err = versionCmd(os.Args[2:])
 	case "hook":
@@ -97,6 +99,8 @@ func usage() {
                                     binary, user service, agent plugins, desktop UI
   mission-control uninstall [-dry-run] [-force]             remove what install wrote
   mission-control doctor                                    check the whole setup
+  mission-control judge [-all] [-only RULES] <transcript.jsonl|file|->
+                                    run the done/stuck rules (replay a transcript)
   mission-control version
 <id> is the ID column from status (a unique suffix is enough). <choice> is an
 option's number or label; for a permission: once | always | reject.

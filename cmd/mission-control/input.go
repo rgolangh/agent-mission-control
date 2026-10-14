@@ -77,7 +77,11 @@ func show(args []string) error {
 
 	fmt.Println("\nhistory")
 	for _, h := range wf.History {
-		fmt.Printf("  %s  %-11s  %s\n", h.At.Local().Format("15:04:05"), h.Status, h.Message)
+		rule := ""
+		if h.Rule != "" {
+			rule = "  [rule: " + h.Rule + "]"
+		}
+		fmt.Printf("  %s  %-11s  %s%s\n", h.At.Local().Format("15:04:05"), h.Status, h.Message, rule)
 	}
 	return nil
 }

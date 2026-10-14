@@ -23,6 +23,7 @@ const maxHistory = 20
 type Transition struct {
 	Status  adapter.Status `json:"status"`
 	Message string         `json:"message"`
+	Rule    string         `json:"rule,omitempty"` // the done/stuck rule that decided it, if one did
 	At      time.Time      `json:"at"`
 }
 
@@ -179,7 +180,11 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	if ev.Timestamp.After(w.LastActivity) {
 		w.LastActivity = ev.Timestamp
 	}
-	return w.transition(ev.Status, ev.Message, ev.Timestamp)
+	changed := w.transition(ev.Status, ev.Message, ev.Timestamp)
+	if changed && ev.Rule != "" {
+		w.History[len(w.History)-1].Rule = ev.Rule
+	}
+	return changed
 }
 
 // Touch records that a source showed signs of life (any frame, even ones

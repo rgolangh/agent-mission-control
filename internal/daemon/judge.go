@@ -29,7 +29,7 @@ func JudgeTurn(ctx context.Context, r adapter.TurnReader, ev *adapter.SourceEven
 		return Verdict{}, err
 	}
 	v := Judge(turn)
-	ev.Status, ev.Message = v.Status, v.Message
+	ev.Status, ev.Message, ev.Rule = v.Status, v.Message, v.Rule
 	return v, nil
 }
 
@@ -50,9 +50,12 @@ func JudgeTurn(ctx context.Context, r adapter.TurnReader, ev *adapter.SourceEven
 //	 9 no-final-message   stuck        it stopped without saying anything
 //	10 mid-step           stuck        stopped while still calling tools
 //	11 greeting           done         "How can I help?": ready for a task
-//	12 question           needs_input  ends by asking you something (not an offer)
-//	13 request            needs_input  "please confirm…", "let me know which…"
-//	14 blocker            stuck        reports it could not do something
+//	12 question           needs_input  ends by asking you something (not an offer),
+//	                                   incl. questions in a closing list
+//	13 request            needs_input  "please confirm…", "once you confirm…",
+//	                                   "tell me and I'll…", "To build this I need:"
+//	14 blocker            stuck        reports it could not do something (closing
+//	                                   sentences or headline)
 //	15 open-todos         stuck        its own todo list is not finished
 //	16 offer              done         finished, offers optional extra work
 //	17 finished           done         none of the above
@@ -132,8 +135,9 @@ var (
 	offerRe     = regexp.MustCompile(`(?i)^(so,? |and |also,? )?((do you )?want me to|would you like( me)? to|should i also|shall i also|i can also|if you('d| would) like|let me know if|need anything else|anything else)\b|\b(want|like) me to (also|additionally)\b`)
 	mainWorkRe  = regexp.MustCompile(`(?i)\b(proceed|go ahead|continue|start|begin|move forward)\b`)
 	requestRe   = regexp.MustCompile(`(?i)^(please |could you |can you )?(let me know|tell me|confirm|choose|pick|select|decide|provide|share|clarify)\b.*\b(which|what|whether|how|where|when|who|your|if you (prefer|want)|or)\b`)
-	questionyRe = regexp.MustCompile(`(?i)\b(which|prefer|choose|pick|select|option)\b`)
-	resolvedRe  = regexp.MustCompile(`(?i)\b(fixed|resolved|now (works|passes|pass)|all (tests )?pass(es|ed)?|no longer|was able to|succeeded|works now)\b`)
+	questionyRe = regexp.MustCompile(`(?i)\b(which|prefer|choose|pick|select|options?|questions?|decide|decisions?|need|confirm|your call|let me know|tell me)\b`)
+	waitingRe   = regexp.MustCompile(`(?i)\b(once|when|after|as soon as) you(?:'ve| have)? (confirm|decide|choose|reply|answer|approve|pick|grant|rename|fix|let me know|tell me|say)\b|\btell me (and|when|once|which|what|whether|if)\b|\blet me know (when|once|which|what|whether|how)\b|\byour call\b|\bwaiting (for|on) (you|your)\b|\bI'll wait\b`)
+	resolvedRe  = regexp.MustCompile(`(?i)\b(fixed|resolved|now (works|passes|pass)|all (tests )?pass(es|ed)?|no longer|was able to|succeeded|works now|(and|but) it works|works fine|confirmed|verified)\b`)
 	blockerRes  = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)\bI(?: was|'m| am)? (?:couldn'?t|could not|can'?t|cannot|wasn'?t able to|was not able to|unable to|not able to)\b`),
 		regexp.MustCompile(`(?i)\b(?:could not|couldn'?t|unable to|not able to|failed to|fails? to) (?:complete|finish|proceed|continue|resolve|fix|find|locate|access|reach|connect|install|build|compile|run|start|load|authenticate|reproduce)\b`),
@@ -186,9 +190,10 @@ func sentences(s string) []string {
 	return out
 }
 
-// closingQuestion finds a question the message ends on: the last sentence,
-// or the line introducing a trailing list of options ("Which do you
-// prefer?" / "Pick one:" followed by "1. …", "2. …").
+// closingQuestion finds a question the message ends on: the last sentence
+// before any closing list ("Which do you prefer?" followed by "1. …"), or a
+// question inside that closing list ("1. **Which desktop?** GNOME or KDE.",
+// as agents write a batch of decisions).
 func closingQuestion(text string) (string, bool) {
 	ls := lines(text)
 	i := len(ls) - 1
@@ -198,16 +203,43 @@ func closingQuestion(text string) (string, bool) {
 	if i < 0 {
 		return "", false
 	}
-	hadList := i < len(ls)-1
 	ss := sentences(ls[i])
 	if len(ss) == 0 {
 		return "", false
 	}
-	last := ss[len(ss)-1]
-	if strings.HasSuffix(last, "?") || hadList && strings.HasSuffix(last, ":") && questionyRe.MatchString(last) {
+	if last := ss[len(ss)-1]; strings.HasSuffix(last, "?") {
 		return truncate(last, 160), true
 	}
+	for _, item := range ls[i+1:] {
+		for _, s := range sentences(item) {
+			if strings.HasSuffix(s, "?") {
+				return truncate(s, 160), true
+			}
+		}
+	}
 	return "", false
+}
+
+// closingListIntro returns the line introducing a closing list when it says
+// the list is what the agent needs from you ("Pick one:", "Two things need
+// your call:", "To build this I need:").
+func closingListIntro(text string) string {
+	ls := lines(text)
+	i := len(ls) - 1
+	for i >= 0 && listItemRe.MatchString(ls[i]) {
+		i--
+	}
+	if i < 0 || i == len(ls)-1 {
+		return ""
+	}
+	ss := sentences(ls[i])
+	if len(ss) == 0 {
+		return ""
+	}
+	if intro := ss[len(ss)-1]; strings.HasSuffix(intro, ":") && questionyRe.MatchString(intro) {
+		return truncate(intro, 160)
+	}
+	return ""
 }
 
 // isOffer: the work is done and the question proposes optional extra work
@@ -217,23 +249,34 @@ func isOffer(q string) bool {
 	return offerRe.MatchString(q) && !mainWorkRe.MatchString(q)
 }
 
-// closingRequest finds an imperative request for input in the last two
-// sentences ("Please confirm which database to use.").
+// closingRequest finds a request for input in the last three sentences:
+// imperative ("Please confirm which database to use.") or saying it waits
+// on you ("I'll run it once you confirm the name.", "Tell me and I'll push."),
+// or a closing list introduced as what it needs from you.
 func closingRequest(text string) string {
 	ss := sentences(text)
-	for i := len(ss) - 1; i >= 0 && i >= len(ss)-2; i-- {
-		if requestRe.MatchString(ss[i]) && !offerRe.MatchString(ss[i]) {
+	for i := len(ss) - 1; i >= 0 && i >= len(ss)-3; i-- {
+		if (requestRe.MatchString(ss[i]) || waitingRe.MatchString(ss[i])) && !offerRe.MatchString(ss[i]) {
 			return truncate(ss[i], 160)
 		}
 	}
-	return ""
+	return closingListIntro(text)
 }
 
-// blocker finds a sentence, among the last few, saying it could not do
-// something, skipping ones that say the problem was then solved.
+// blocker finds a sentence saying it could not do something, skipping ones
+// that say the problem was then solved. It looks at the closing sentences,
+// then the headline: agents often lead with the outcome ("Ready to push,
+// but I couldn't push it: …").
 func blocker(text string) string {
 	ss := sentences(text)
+	var idx []int
 	for i := len(ss) - 1; i >= 0 && i >= len(ss)-6; i-- {
+		idx = append(idx, i)
+	}
+	for i := 0; i < 2 && i < len(ss)-6; i++ {
+		idx = append(idx, i)
+	}
+	for _, i := range idx {
 		if resolvedRe.MatchString(ss[i]) {
 			continue
 		}

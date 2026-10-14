@@ -41,11 +41,12 @@ type SourceEvent struct {
 	Parent       string       `json:"parent,omitempty"`      // source ID (same adapter) of the source that spawned this one, e.g. a subagent's parent session
 	Timestamp    time.Time    `json:"timestamp"`
 	Capabilities Capabilities `json:"capabilities"`
-	Ask          *Ask         `json:"ask,omitempty"`        // set when the source became blocked on something the user can answer
-	Resolves     string       `json:"resolves,omitempty"`   // id of an Ask that was answered or rejected
-	Gone         bool         `json:"gone,omitempty"`       // the source no longer exists (e.g. deleted); the daemon drops its workflow
-	TurnEnded    bool         `json:"turn_ended,omitempty"` // the agent stopped and handed control back; the daemon judges done/stuck/needs_input from a TurnEnd
-	Raw          any          `json:"raw,omitempty"`        // original payload, kept for debugging / forward-compat
+	Ask          *Ask         `json:"ask,omitempty"`      // set when the source became blocked on something the user can answer
+	Resolves     string       `json:"resolves,omitempty"` // id of an Ask that was answered or rejected
+	Gone         bool         `json:"gone,omitempty"`     // the source no longer exists (e.g. deleted); the daemon drops its workflow
+	TurnEnded    bool         `json:"turn_ended,omitempty"`
+	Rule         string       `json:"rule,omitempty"` // which done/stuck rule set Status (daemon.Judge), for explaining verdicts // the agent stopped and handed control back; the daemon judges done/stuck/needs_input from a TurnEnd
+	Raw          any          `json:"raw,omitempty"`  // original payload, kept for debugging / forward-compat
 }
 
 // TurnEnd is the evidence about how an agent's turn ended, read from the
