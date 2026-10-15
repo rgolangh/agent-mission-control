@@ -16,8 +16,14 @@ import (
 // Version is reported by GET /healthz; main sets it from its build version.
 var Version = "dev"
 
-// maxHistory bounds the per-workflow transition log.
-const maxHistory = 20
+// maxHistory bounds the per-workflow transition log. Workflow and parent-link
+// limits bound state created by sessions that never send a matching Gone event.
+const (
+	maxHistory             = 20
+	maxWorkflowsPerAdapter = 1000
+	maxWorkflowsTotal      = 2000
+	maxParentLinks         = 10000
+)
 
 // Transition is one change of (status, message) in a workflow's life.
 type Transition struct {
@@ -131,7 +137,9 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	defer s.mu.Unlock()
 
 	if ev.Parent != "" {
-		s.linkLocked(id, ev.Adapter+":"+ev.Parent, ev.Timestamp)
+		if !s.linkLocked(id, ev.Adapter+":"+ev.Parent, ev.Timestamp) {
+			return false
+		}
 	}
 	if root := s.rootLocked(id); root != id {
 		return s.applyChild(root, ev)
@@ -139,13 +147,16 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 
 	if ev.Gone {
 		_, existed := s.m[id]
-		delete(s.m, id)
+		s.deleteWorkflowLocked(id)
 		return existed
 	}
 
 	w, ok := s.m[id]
 	if !ok {
 		if ev.Status == "" {
+			return false
+		}
+		if !s.admitWorkflowLocked(ev.Adapter) {
 			return false
 		}
 		w = &Workflow{ID: id, Adapter: ev.Adapter, SourceID: ev.SourceID, StartedAt: ev.Timestamp}
@@ -186,6 +197,89 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 		w.History[len(w.History)-1].Rule = ev.Rule
 	}
 	return changed
+}
+
+// admitWorkflowLocked keeps both per-adapter and total workflow counts
+// bounded. When full, the oldest completed workflow is removed; active,
+// waiting and stuck workflows are never evicted to make room.
+func (s *Store) admitWorkflowLocked(adapterName string) bool {
+	for {
+		count := 0
+		for _, w := range s.m {
+			if w.Adapter == adapterName {
+				count++
+			}
+		}
+		if count < maxWorkflowsPerAdapter && len(s.m) < maxWorkflowsTotal {
+			return true
+		}
+
+		var oldest *Workflow
+		for _, w := range s.m {
+			if w.Status != adapter.StatusDone && w.Status != adapter.StatusFailed {
+				continue
+			}
+			if count >= maxWorkflowsPerAdapter && w.Adapter != adapterName {
+				continue
+			}
+			if oldest == nil || workflowActivity(w).Before(workflowActivity(oldest)) {
+				oldest = w
+			}
+		}
+		if oldest == nil {
+			return false
+		}
+		s.deleteWorkflowLocked(oldest.ID)
+	}
+}
+
+func workflowActivity(w *Workflow) time.Time {
+	if !w.LastActivity.IsZero() {
+		return w.LastActivity
+	}
+	if !w.UpdatedAt.IsZero() {
+		return w.UpdatedAt
+	}
+	return w.StartedAt
+}
+
+// deleteWorkflowLocked removes a workflow and links that would otherwise
+// retain its ID after eviction, expiry or a source Gone event.
+func (s *Store) deleteWorkflowLocked(id string) {
+	delete(s.m, id)
+	delete(s.parents, id)
+	for child, parent := range s.parents {
+		if parent == id {
+			delete(s.parents, child)
+		}
+	}
+	for _, seen := range s.syncing {
+		delete(seen, id)
+	}
+}
+
+// PruneIdle removes old completed workflows for one adapter. Waiting and
+// active workflows are retained regardless of age. Returns removed IDs.
+func (s *Store) PruneIdle(adapterName string, now time.Time, idle time.Duration) []string {
+	if idle <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var removed []string
+	for id, w := range s.m {
+		if w.Adapter != adapterName || (w.Status != adapter.StatusDone && w.Status != adapter.StatusFailed) || len(w.Pending) > 0 {
+			continue
+		}
+		at := workflowActivity(w)
+		if at.IsZero() || now.Sub(at) < idle {
+			continue
+		}
+		s.deleteWorkflowLocked(id)
+		removed = append(removed, id)
+	}
+	sort.Strings(removed)
+	return removed
 }
 
 // Touch records that a source showed signs of life (any frame, even ones
@@ -251,22 +345,35 @@ func (w *Workflow) transition(st adapter.Status, msg string, at time.Time) bool 
 // already tracked as a workflow of its own (its first events arrived before
 // the link, as in a snapshot replay), it is folded into the root: its
 // pending asks move there and its own entry is dropped.
-func (s *Store) linkLocked(child, parent string, at time.Time) {
+func (s *Store) linkLocked(child, parent string, at time.Time) bool {
 	if child == parent || s.parents[child] != "" || s.rootLocked(parent) == child {
-		return
+		return true
+	}
+	if len(s.parents) >= maxParentLinks {
+		return false
+	}
+	w, ok := s.m[child]
+	root := s.rootLocked(parent)
+	if ok && len(w.Pending) > 0 {
+		if _, exists := s.m[root]; !exists && !s.admitWorkflowLocked(w.Adapter) {
+			return false
+		}
 	}
 	s.parents[child] = parent
-	w, ok := s.m[child]
 	if !ok {
-		return
+		return true
 	}
 	delete(s.m, child)
 	for _, a := range w.Pending {
 		root := s.rootWorkflowLocked(s.rootLocked(child), w.Adapter, w.Capabilities, at)
+		if root == nil {
+			return false
+		}
 		root.setAsk(a)
 		root.Capabilities = w.Capabilities
 		root.transition(adapter.StatusNeedsInput, "subagent "+w.Message, at)
 	}
+	return true
 }
 
 // rootWorkflowLocked returns the workflow with this ID, creating it if a
@@ -274,6 +381,9 @@ func (s *Store) linkLocked(child, parent string, at time.Time) {
 func (s *Store) rootWorkflowLocked(id, adapterName string, caps adapter.Capabilities, at time.Time) *Workflow {
 	if w, ok := s.m[id]; ok {
 		return w
+	}
+	if !s.admitWorkflowLocked(adapterName) {
+		return nil
 	}
 	w := &Workflow{ID: id, Adapter: adapterName, SourceID: strings.TrimPrefix(id, adapterName+":"), Capabilities: caps, StartedAt: at}
 	s.m[id] = w
@@ -293,6 +403,9 @@ func (s *Store) applyChild(root string, ev adapter.SourceEvent) bool {
 	}
 	if ev.Ask != nil {
 		w := s.rootWorkflowLocked(root, ev.Adapter, ev.Capabilities, ev.Timestamp)
+		if w == nil {
+			return false
+		}
 		w.setAsk(*ev.Ask)
 		w.Capabilities = ev.Capabilities
 		return w.transition(adapter.StatusNeedsInput, "subagent "+ev.Message, ev.Timestamp)
@@ -348,7 +461,7 @@ func (s *Store) DropOrigin(origin string) int {
 	n := 0
 	for id, w := range s.m {
 		if w.Origin == origin {
-			delete(s.m, id)
+			s.deleteWorkflowLocked(id)
 			n++
 		}
 	}

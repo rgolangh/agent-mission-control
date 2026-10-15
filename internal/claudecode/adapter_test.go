@@ -3,10 +3,12 @@ package claudecode
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
@@ -79,6 +81,48 @@ func TestNormalizeLifecycle(t *testing.T) {
 	ev, _ := a.Normalize(hook(t, `{"session_id":"s1","hook_event_name":"SessionEnd","reason":"prompt_input_exit"}`))
 	if !ev.Gone {
 		t.Error("SessionEnd must drop the workflow")
+	}
+}
+
+func TestExpireIdleSessions(t *testing.T) {
+	a := New()
+	for _, h := range []Hook{
+		{SessionID: "old", Event: "Stop"},
+		{SessionID: "recent", Event: "Stop"},
+		{SessionID: "live", Event: "Stop", AgentPID: os.Getpid()},
+	} {
+		if _, ok := a.Normalize(h); !ok {
+			t.Fatalf("session %s was not normalized", h.SessionID)
+		}
+	}
+	now := time.Now()
+	a.mu.Lock()
+	a.sessions["old"].lastSeen = now.Add(-48 * time.Hour)
+	a.sessions["recent"].lastSeen = now.Add(-time.Hour)
+	a.sessions["live"].lastSeen = now.Add(-48 * time.Hour)
+	a.mu.Unlock()
+
+	got := a.ExpireIdle(now, 24*time.Hour)
+	if len(got) != 1 || got[0] != "old" {
+		t.Fatalf("expired = %v, want [old]", got)
+	}
+	if len(a.sessions) != 2 || a.sessions["recent"] == nil || a.sessions["live"] == nil {
+		t.Fatalf("remaining sessions = %v", a.sessions)
+	}
+}
+
+func TestNormalizeBoundsSessionState(t *testing.T) {
+	a := New()
+	for i := 0; i < maxSessions; i++ {
+		if _, ok := a.Normalize(Hook{SessionID: fmt.Sprintf("s-%d", i), Event: "Stop"}); !ok {
+			t.Fatalf("session %d was rejected before the limit", i)
+		}
+	}
+	if _, ok := a.Normalize(Hook{SessionID: "over-limit", Event: "Stop"}); ok {
+		t.Error("session was accepted after the hard limit")
+	}
+	if len(a.sessions) != maxSessions {
+		t.Errorf("adapter session count = %d, want %d", len(a.sessions), maxSessions)
 	}
 }
 

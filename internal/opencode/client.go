@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,15 @@ type Client struct {
 	tokenMu   sync.Mutex
 	HTTP      *http.Client
 }
+
+const (
+	maxJSONResponseBytes       = 4 << 20
+	maxSnapshotResponseBytes   = 16 << 20
+	maxSnapshotSessions        = 1000
+	maxSnapshotPendingRequests = 2000
+	maxSnapshotDuration        = 30 * time.Second
+	maxSSEEventBytes           = 1 << 20
+)
 
 func New(baseURL string) *Client {
 	// No overall Timeout (the SSE body streams forever), but bound the wait
@@ -101,13 +112,22 @@ func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 		var dataLines [][]byte
+		dataBytes := 0
+		oversized := false
 
 		flush := func() {
+			if oversized {
+				dataLines = nil
+				dataBytes = 0
+				oversized = false
+				return
+			}
 			if len(dataLines) == 0 {
 				return
 			}
 			payload := bytes.Join(dataLines, []byte("\n"))
 			dataLines = dataLines[:0]
+			dataBytes = 0
 			var env Envelope
 			if err := json.Unmarshal(payload, &env); err != nil {
 				// Not every SSE frame is our event JSON (e.g. the initial
@@ -127,7 +147,22 @@ func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) 
 			case line == "":
 				flush()
 			case strings.HasPrefix(line, "data:"):
-				dataLines = append(dataLines, []byte(strings.TrimPrefix(line, "data:")))
+				if oversized {
+					continue
+				}
+				data := []byte(strings.TrimPrefix(line, "data:"))
+				n := len(data)
+				if len(dataLines) > 0 {
+					n++ // newline inserted when the data lines are joined
+				}
+				if n > maxSSEEventBytes-dataBytes {
+					dataLines = nil
+					dataBytes = 0
+					oversized = true
+					continue
+				}
+				dataLines = append(dataLines, data)
+				dataBytes += n
 			default:
 				// ignore "event:", "id:", ":" comment/heartbeat lines
 			}
@@ -264,22 +299,43 @@ func (c *Client) SubscribeWithHooks(ctx context.Context, staleness time.Duration
 
 // get decodes a JSON GET response into out.
 func (c *Client) get(ctx context.Context, path string, out any) error {
+	_, err := c.getLimited(ctx, path, out, maxJSONResponseBytes)
+	return err
+}
+
+// getLimited decodes one bounded JSON response and reports how many body
+// bytes were consumed, so a multi-request snapshot can enforce an aggregate
+// budget as well as a per-response limit.
+func (c *Client) getLimited(ctx context.Context, path string, out any, limit int64) (int64, error) {
+	if limit <= 0 {
+		return 0, fmt.Errorf("GET %s has no response budget left", path)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	c.authenticate(req)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("GET %s returned %d", path, resp.StatusCode)
+		return 0, fmt.Errorf("GET %s returned %d", path, resp.StatusCode)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return int64(len(body)), err
+	}
+	if int64(len(body)) > limit {
+		return int64(len(body)), fmt.Errorf("GET %s response exceeds %d-byte limit", path, limit)
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return int64(len(body)), err
+	}
+	return int64(len(body)), nil
 }
 
 // Snapshot describes what the server is doing right now as synthetic
@@ -292,6 +348,8 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 // Idle sessions are deliberately not enumerated: only sessions that are busy
 // or waiting on you count as live workflows; history stays out.
 func (c *Client) Snapshot(ctx context.Context) ([]Envelope, error) {
+	ctx, cancel := context.WithTimeout(ctx, maxSnapshotDuration)
+	defer cancel()
 	var out []Envelope
 	var firstErr error
 	note := func(err error) {
@@ -299,19 +357,39 @@ func (c *Client) Snapshot(ctx context.Context) ([]Envelope, error) {
 			firstErr = err
 		}
 	}
+	budget := int64(maxSnapshotResponseBytes)
+	getSnapshot := func(path string, dst any) error {
+		limit := int64(maxJSONResponseBytes)
+		if budget < limit {
+			limit = budget
+		}
+		n, err := c.getLimited(ctx, path, dst, limit)
+		budget -= n
+		note(err)
+		return err
+	}
 
 	var statuses map[string]json.RawMessage
-	note(c.get(ctx, "/session/status", &statuses))
-	for id, st := range statuses {
+	getSnapshot("/session/status", &statuses)
+	ids := make([]string, 0, len(statuses))
+	for id := range statuses {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	if len(ids) > maxSnapshotSessions {
+		note(fmt.Errorf("session status contains %d sessions; snapshot capped at %d", len(ids), maxSnapshotSessions))
+		ids = ids[:maxSnapshotSessions]
+	}
+	for _, id := range ids {
+		st := statuses[id]
 		props, _ := json.Marshal(map[string]any{"sessionID": id, "status": st})
 		out = append(out, Envelope{Type: EventSessionStatus, Properties: props})
 	}
 	// Titles/directories for the live sessions, as metadata-only session.updated
 	// frames. They follow the status frames so the workflow already exists.
-	for id := range statuses {
+	for _, id := range ids {
 		var info json.RawMessage
-		if err := c.get(ctx, "/session/"+id, &info); err != nil {
-			note(err)
+		if err := getSnapshot("/session/"+id, &info); err != nil {
 			continue
 		}
 		props, _ := json.Marshal(map[string]any{"sessionID": id, "info": info})
@@ -321,11 +399,19 @@ func (c *Client) Snapshot(ctx context.Context) ([]Envelope, error) {
 	// GET /permission and GET /question items have the same shape as the
 	// properties of permission.asked / question.asked.
 	var perms, qs []json.RawMessage
-	note(c.get(ctx, "/permission", &perms))
+	getSnapshot("/permission", &perms)
+	if len(perms) > maxSnapshotPendingRequests {
+		note(fmt.Errorf("permission snapshot contains %d requests; capped at %d", len(perms), maxSnapshotPendingRequests))
+		perms = perms[:maxSnapshotPendingRequests]
+	}
 	for _, p := range perms {
 		out = append(out, Envelope{Type: EventPermissionAsked, Properties: p})
 	}
-	note(c.get(ctx, "/question", &qs))
+	getSnapshot("/question", &qs)
+	if len(qs) > maxSnapshotPendingRequests {
+		note(fmt.Errorf("question snapshot contains %d requests; capped at %d", len(qs), maxSnapshotPendingRequests))
+		qs = qs[:maxSnapshotPendingRequests]
+	}
 	for _, q := range qs {
 		out = append(out, Envelope{Type: EventQuestionAsked, Properties: q})
 	}

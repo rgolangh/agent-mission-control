@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +32,10 @@ import (
 
 // Name is the adapter name: workflows are "claude-code:<session_id>".
 const Name = "claude-code"
+
+// maxSessions bounds adapter-only state even if hooks arrive for sessions
+// that never produce SessionEnd. The daemon separately bounds workflows.
+const maxSessions = 1000
 
 // Hook is the subset of a Claude Code hook payload the adapter reads, plus
 // the fields `mission-control hook` adds (mc_*).
@@ -60,6 +65,7 @@ type session struct {
 	transcript   string
 	lastText     string // from this turn's Stop hook; "" until it fires
 	pid          int
+	lastSeen     time.Time
 	titled       bool // has a real (ai-title) title; prompts no longer rename it
 	titleChecked bool // the transcript was searched for a title at least once
 	prompted     bool
@@ -128,7 +134,11 @@ func (a *Adapter) Normalize(h Hook) (adapter.SourceEvent, bool) {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if _, ok := a.sessions[h.SessionID]; !ok && len(a.sessions) >= maxSessions {
+		return adapter.SourceEvent{}, false
+	}
 	s := a.get(h.SessionID)
+	s.lastSeen = time.Now()
 	if h.TranscriptPath != "" {
 		if p, ok := a.transcriptPath(h.TranscriptPath); ok {
 			s.transcript = p
@@ -248,6 +258,27 @@ func (a *Adapter) Forget(id string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	delete(a.sessions, id)
+}
+
+// ExpireIdle drops adapter state for old sessions without a live Claude
+// process. Live processes are retained even if a long operation emits no
+// hooks. Returns the expired session IDs.
+func (a *Adapter) ExpireIdle(now time.Time, idle time.Duration) []string {
+	if idle <= 0 {
+		return nil
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	var expired []string
+	for id, s := range a.sessions {
+		if s.lastSeen.IsZero() || now.Sub(s.lastSeen) < idle || (s.pid > 0 && procs.Alive(s.pid)) {
+			continue
+		}
+		delete(a.sessions, id)
+		expired = append(expired, id)
+	}
+	sort.Strings(expired)
+	return expired
 }
 
 // LastTurn reads how the session's last turn ended from its transcript, with

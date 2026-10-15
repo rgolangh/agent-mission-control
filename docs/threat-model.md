@@ -3,8 +3,8 @@
 Status: analysis of 2026-10-14 (against `5b53470`), updated the same day
 after fixing every finding rated Medium or above. Re-reviewed 2026-10-15
 (against `84b4cd9` plus the GNOME extension, installer and release work):
-earlier fixes re-verified live, new findings N1–N6 fixed, L1 and L6 fixed
-(section 8). Each finding says how it
+earlier fixes re-verified live, findings N1–N8 fixed or mitigated, L1 and L6
+fixed (section 8). Each finding says how it
 was established: **verified** (reproduced against the running system),
 **design** (follows from the code or architecture, not exploited), or
 **unverified** (depends on third-party behaviour not tested). Each fixed
@@ -19,8 +19,9 @@ finding also says how the fix was verified.
 | M3 | Forged hook makes the daemon read arbitrary files | Medium | **Fixed** |
 | M4 | Widget renders agent text as HTML | Medium | **Fixed** |
 | L1, L6 | Terminal escapes in CLI output; agent text in the journal | Low | **Fixed** 2026-10-15 |
-| L2–L5, L7 | See below | Low | Open (L2 now limited to your own processes by M2; L5 partly done) |
-| N1–N6 | Review of 2026-10-15, see section 8 | Bug / Low | **Fixed** |
+| L2, L4–L5, L7 | See below | Low | Open (L2 now limited to your own processes by M2; L4 mitigated; L5 partly done) |
+| L3 | Unbounded workflow and adapter state | Low | **Fixed** 2026-10-15 |
+| N1–N8 | Review of 2026-10-15, see section 8 | Bug / Low | **Fixed or mitigated** |
 
 ## 1. What the system is
 
@@ -250,13 +251,37 @@ Every new `session_id` creates a workflow and adapter state. Sessions without
 a PID are never pruned. *Fix:* cap workflows per adapter; expire idle
 claude-code sessions.
 
+> **Fixed** (2026-10-15). The store caps workflows at 1,000 per adapter and
+> 2,000 total, evicting the oldest completed workflow before rejecting new
+> active work; the subagent parent map is capped at 10,000 links. Claude Code
+> adapter state is capped at 1,000 sessions and expires after 24 hours without
+> hooks when the process is not live. Completed/failed Claude Code workflows
+> are pruned after 24 hours; active and waiting workflows are retained.
+> *Verified* by `TestWorkflowCountIsBounded`, `TestParentLinksAreBounded`,
+> `TestPruneIdleOnlyRemovesCompletedWorkflows`, `TestExpireIdleSessions`, and
+> `TestNormalizeBoundsSessionState`.
+
 **L4. Discovery trusts any same-user process named `*opencode*`.** *Verified (boundary), design (impact).*
 Cross-user spoofing is blocked by the kernel: another user's
 `/proc/<pid>/fd` is unreadable (verified), so their sockets can't be mapped.
-A same-user impostor would receive answers and prompts, and the configured
-`-opencode-password`, which is sent to every discovered server (known gap).
+A same-user impostor could receive answers and prompts, and before the
+mitigation the configured `-opencode-password` was sent to every discovered
+server (known gap).
 *Fix:* per-endpoint credentials; optionally require the executable to resolve
 to a known OpenCode install.
+
+> **Mitigated** (2026-10-15). A password is now used only for directly
+> configured OpenCode URLs; a password-protected endpoint found by
+> discovery is skipped rather than sent credentials. A healthy-looking
+> same-user impostor can still be discovered and receive answers if you act on
+> its forged state; checking the process executable remains optional work.
+> OpenCode JSON snapshots are capped at 4 MiB per response and 16 MiB total,
+> with limits of 1,000 sessions and 30 seconds; SSE event frames are capped at
+> 1 MiB. *Verified* by
+> `TestDiscoveredOpenCodeDoesNotReceiveConfiguredPassword`,
+> `TestExplicitOpenCodeReceivesConfiguredPassword`,
+> `TestSnapshotRejectsOversizedJSONResponse`, and
+> `TestSnapshotCapsNumberOfSessions`.
 
 **L5. Supply chain.** *Design.*
 The bridge would install from GitHub into **every** OpenCode process, and the
@@ -291,6 +316,10 @@ availability risk, not a security one: it fails closed (no bridge).
   linear time.
 - **Bounded inputs:** request bodies are capped (1 MB API, 4 MB hooks); history
   and transcript reads are bounded (20 transitions, 512 KB tail).
+- **Bounded state and snapshots:** 1,000 workflows per adapter, 2,000 total,
+  10,000 parent links, and 1,000 Claude Code adapter sessions; OpenCode JSON
+  snapshots are limited to 4 MiB per response, 16 MiB total, 1,000 sessions,
+  and 30 seconds; SSE event frames are limited to 1 MiB.
 - **Hooks can't harm the agent:** `mission-control hook` prints nothing,
   always exits 0, and gives up after 400 ms.
 - **No shell injection from agent text:** notifications and window focusing
@@ -311,19 +340,18 @@ sessions becomes cross-user prompt-injection input (H2 at team scale).
 
 1. **Upstream:** report OpenCode's missing Host validation (it affects
    `opencode --port` and `opencode serve`).
-2. **L3:** cap and expire forged or idle sessions.
-3. **L4:** credentials for discovered native `--port` servers (bridged
-   sessions are done); optionally verify the executable. Bound the size of
-   JSON responses read from OpenCode servers.
-4. **L5:** signatures (e.g. Sigstore) for release binaries. Done: Actions
+2. **L4:** optionally verify the executable behind an auto-discovered healthy
+   OpenCode endpoint. Password-protected native servers must be configured
+   explicitly; discovery never receives the password.
+3. **L5:** signatures (e.g. Sigstore) for release binaries. Done: Actions
    pinned by SHA, SHA-256 checksums published with each release, and the
    plugins ship inside the binary (`mission-control install`), so there is
    no separate plugin specifier to pin.
-5. The bridge's token file survives a killed (SIGTERM) OpenCode, since the
+4. The bridge's token file survives a killed (SIGTERM) OpenCode, since the
    plugin's `dispose` doesn't run. Harmless (the daemon reads it by live
    PID, and a reused PID's new process overwrites it), but the daemon could
    remove files of exited processes.
-6. Before any remote or shared view (section 6): authentication, TLS,
+5. Before any remote or shared view (section 6): authentication, TLS,
    per-workflow authorization, audit log.
 
 ## 8. Review of 2026-10-15
@@ -342,6 +370,8 @@ HTTP/2 (h2c refused). Bridge: health open, no token → 401, forged `Host` /
 | N4 | The token file outlived the daemon, and the UIs kept calling 127.0.0.1:4200 while it was down: on a shared machine, a user binding that port got the (stale) token, could show fake workflows and receive typed answers. *Design.* | Low (shared machines) | The daemon removes its token file on shutdown (only if it is still its own). The GNOME client re-reads the token before every request and sends nothing without one; the widget's FileView drops the token when the file goes (verified) and `Api.request` sends nothing without one. Tests: `TestTokenFileLivesOnlyAsLongAsTheDaemon`, `client.test.js` (a listener on the port saw 0 connections). Live: stop → no token file, start → new one. |
 | N5 | No HTTP server timeouts: local processes could hold connections open before authenticating. *Design.* | Low | `ReadHeaderTimeout` 5s, `IdleTimeout` 2m, 64 KB header cap (no write timeout: answers wait on agents). Live: a half-sent request is closed after 5.0s. |
 | N6 | Bidi overrides and zero-width characters in agent text could make titles and questions display differently than they read (CLI, GNOME, QML). *Design.* | Low | With L1: `adapter.CleanText` at ingest; GNOME's `clean()` strips the same set. |
+| N7 | A same-user process named `opencode` could receive the shared server password through auto-discovery, and OpenCode responses could consume unbounded memory or time. *Design.* | Low | Passwords are limited to directly configured URLs; discovery skips endpoints that require auth. JSON responses are limited to 4 MiB each, snapshots to 16 MiB, 1,000 sessions and 30 seconds, and SSE frames to 1 MiB. Tests: `TestDiscoveredOpenCodeDoesNotReceiveConfiguredPassword`, `TestSnapshotRejectsOversizedJSONResponse`, `TestSnapshotCapsNumberOfSessions`, `TestSubscribeDropsOversizedSSEFrame`. |
+| N8 | Forged or never-ended sessions could grow workflow, parent-link and Claude adapter state without bound. *Design.* | Low | Store caps at 1,000 workflows per adapter / 2,000 total and 10,000 parent links; Claude adapter caps at 1,000 sessions and expires idle state/completed workflows after 24 hours. Tests: `TestWorkflowCountIsBounded`, `TestParentLinksAreBounded`, `TestPruneIdleOnlyRemovesCompletedWorkflows`, `TestExpireIdleSessions`, `TestNormalizeBoundsSessionState`. |
 
 Not findings: the transcript tail reader reads to end of file after
 seeking (same-user files only).

@@ -103,6 +103,11 @@ and Claude Code 2.1 on Linux. Planned: more adapters
 (GitHub PRs, Jira) linked to the sessions that produced them, and a shared
 web view.
 
+Using it day to day? Share install friction, workflow misclassifications, and
+which agent/desktop combinations you use in a
+[field-feedback issue](https://github.com/rgolangh/agent-mission-control/issues/new).
+Please don't attach raw agent transcripts or logs; they may contain secrets.
+
 ## Development
 
 ```bash

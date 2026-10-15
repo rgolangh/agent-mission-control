@@ -40,8 +40,9 @@ import (
 )
 
 const (
-	defaultListen = "127.0.0.1:4200"
-	staleness     = 45 * time.Second
+	defaultListen   = "127.0.0.1:4200"
+	staleness       = 45 * time.Second
+	claudeIdleAfter = 24 * time.Hour
 )
 
 func main() {
@@ -118,7 +119,7 @@ func serve(args []string) error {
 	daemon.Version = version
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", defaultListen, "TCP address for token-authenticated clients such as the desktop widget (empty disables)")
-	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for the OpenCode servers, if they require one")
+	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for non-discovered OpenCode servers")
 	var servers stringList
 	fs.Var(&servers, "opencode", "OpenCode server base URL (repeatable; default http://localhost:4096)")
 	discover := fs.Bool("discover", false, "also find and attach to running `opencode --port N` servers automatically (Linux)")
@@ -141,18 +142,7 @@ func serve(args []string) error {
 	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
 	// server's process when discovery found it (0 for -opencode URLs).
 	watch := func(ctx context.Context, url string, pid int) {
-		client := opencode.New(url)
-		client.Password = *password
-		// A bridged plain `opencode` requires the token its plugin wrote
-		// for this process (per-endpoint credentials, readable only by us).
-		if pid > 0 {
-			client.TokenFunc = func() string {
-				if port, tok, err := opencode.BridgeCredential(pid); err == nil && strings.HasSuffix(url, fmt.Sprintf(":%d", port)) {
-					return tok
-				}
-				return ""
-			}
-		}
+		client := newOpenCodeClient(url, pid, *password)
 		onEvent := func(env opencode.Envelope) {
 			if sid := opencode.SessionOf(env); sid != "" {
 				live := store.WorkflowFor(adapter.SourceEvent{Adapter: "opencode", SourceID: sid})
@@ -211,8 +201,8 @@ func serve(args []string) error {
 					if explicit[discovery.Canonical(ep.URL)] {
 						continue // already covered by -opencode
 					}
-					if ep.AuthRequired && *password == "" {
-						logf("found password-protected OpenCode at %s (pid %d) but no -opencode-password; skipping", ep.URL, ep.PID)
+					if ep.AuthRequired {
+						logf("found password-protected OpenCode at %s (pid %d); not sending credentials during discovery, configure it explicitly with -opencode", ep.URL, ep.PID)
 						continue
 					}
 					wctx, cancel := context.WithCancel(ctx)
@@ -272,6 +262,7 @@ func serve(args []string) error {
 			case <-ctx.Done():
 				return
 			case <-tick.C:
+				now := time.Now()
 				for id, alive := range cc.Alive() {
 					if alive {
 						continue
@@ -282,11 +273,36 @@ func serve(args []string) error {
 						logf("%s:%s gone — claude process exited", claudecode.Name, id)
 					}
 				}
+				for _, id := range cc.ExpireIdle(now, claudeIdleAfter) {
+					logf("%s:%s expired adapter state after %s idle", claudecode.Name, id, claudeIdleAfter)
+				}
+				for _, id := range store.PruneIdle(claudecode.Name, now, claudeIdleAfter) {
+					cc.Forget(strings.TrimPrefix(id, claudecode.Name+":"))
+					logf("%s expired completed workflow after %s idle", id, claudeIdleAfter)
+				}
 			}
 		}
 	}()
 
 	return listenAndServe(ctx, mux, *listen, logf)
+}
+
+// newOpenCodeClient only gives a password to a directly watched URL
+// (pid == 0). Auto-discovered endpoints may be same-user impostors; a bridge
+// instead gets its own per-process token from the runtime directory.
+func newOpenCodeClient(url string, pid int, password string) *opencode.Client {
+	client := opencode.New(url)
+	if pid == 0 {
+		client.Password = password
+		return client
+	}
+	client.TokenFunc = func() string {
+		if port, tok, err := opencode.BridgeCredential(pid); err == nil && strings.HasSuffix(url, fmt.Sprintf(":%d", port)) {
+			return tok
+		}
+		return ""
+	}
+	return client
 }
 
 // listenAndServe serves the API on two listeners:

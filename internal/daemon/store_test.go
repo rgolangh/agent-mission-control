@@ -77,6 +77,85 @@ func TestHistoryIsBounded(t *testing.T) {
 	}
 }
 
+func TestWorkflowCountIsBounded(t *testing.T) {
+	s := NewStore()
+	t0 := time.Now().Add(-time.Hour)
+	for i := 0; i < maxWorkflowsPerAdapter; i++ {
+		e := ev(fmt.Sprintf("done-%d", i), adapter.StatusDone, "finished", t0.Add(time.Duration(i)*time.Second))
+		if !s.Apply(e) {
+			t.Fatalf("workflow %d was not admitted", i)
+		}
+	}
+	if len(s.List()) != maxWorkflowsPerAdapter {
+		t.Fatalf("workflow count = %d, want %d", len(s.List()), maxWorkflowsPerAdapter)
+	}
+
+	newDone := ev("new-done", adapter.StatusDone, "finished", time.Now())
+	s.Apply(newDone)
+	if len(s.List()) != maxWorkflowsPerAdapter {
+		t.Fatalf("completed workflow admission grew store to %d", len(s.List()))
+	}
+	if _, ok := s.Get("opencode:done-0"); ok {
+		t.Error("oldest completed workflow was not evicted")
+	}
+	if _, ok := s.Get("opencode:new-done"); !ok {
+		t.Error("new completed workflow was not admitted")
+	}
+
+	active := NewStore()
+	for i := 0; i < maxWorkflowsPerAdapter; i++ {
+		active.Apply(ev(fmt.Sprintf("active-%d", i), adapter.StatusRunning, "working", t0.Add(time.Duration(i)*time.Second)))
+	}
+	if active.Apply(ev("over-limit", adapter.StatusRunning, "working", time.Now())) {
+		t.Error("an active workflow was admitted after the hard limit")
+	}
+	if len(active.List()) != maxWorkflowsPerAdapter {
+		t.Errorf("active workflow count = %d, want %d", len(active.List()), maxWorkflowsPerAdapter)
+	}
+}
+
+func TestParentLinksAreBounded(t *testing.T) {
+	s := NewStore()
+	at := time.Now()
+	for i := 0; i < maxParentLinks; i++ {
+		e := ev(fmt.Sprintf("child-%d", i), adapter.StatusRunning, "working", at)
+		e.Parent = fmt.Sprintf("parent-%d", i)
+		s.Apply(e)
+	}
+	if len(s.parents) != maxParentLinks {
+		t.Fatalf("parent links = %d, want %d", len(s.parents), maxParentLinks)
+	}
+	extra := ev("over-limit-child", adapter.StatusRunning, "working", at)
+	extra.Parent = "over-limit-parent"
+	if s.Apply(extra) {
+		t.Error("subagent event should be rejected when the parent-link table is full")
+	}
+	if len(s.parents) != maxParentLinks {
+		t.Errorf("parent links grew past the cap: %d", len(s.parents))
+	}
+}
+
+func TestPruneIdleOnlyRemovesCompletedWorkflows(t *testing.T) {
+	s := NewStore()
+	old := time.Now().Add(-48 * time.Hour)
+	s.Apply(adapter.SourceEvent{Adapter: "claude-code", SourceID: "done", Status: adapter.StatusDone, Message: "finished", Timestamp: old})
+	s.Apply(adapter.SourceEvent{Adapter: "claude-code", SourceID: "failed", Status: adapter.StatusFailed, Message: "failed", Timestamp: old})
+	s.Apply(adapter.SourceEvent{Adapter: "claude-code", SourceID: "running", Status: adapter.StatusRunning, Message: "working", Timestamp: old})
+	s.Apply(adapter.SourceEvent{Adapter: "claude-code", SourceID: "waiting", Status: adapter.StatusNeedsInput, Message: "asked", Timestamp: old,
+		Ask: &adapter.Ask{ID: "q", Kind: adapter.AskKindQuestion}})
+	s.Apply(adapter.SourceEvent{Adapter: "opencode", SourceID: "other", Status: adapter.StatusDone, Message: "finished", Timestamp: old})
+
+	removed := s.PruneIdle("claude-code", time.Now(), 24*time.Hour)
+	if fmt.Sprint(removed) != "[claude-code:done claude-code:failed]" {
+		t.Fatalf("removed = %v", removed)
+	}
+	for _, id := range []string{"claude-code:running", "claude-code:waiting", "opencode:other"} {
+		if _, ok := s.Get(id); !ok {
+			t.Errorf("pruned workflow that should remain: %s", id)
+		}
+	}
+}
+
 func TestMetadataOnlyEventsUpdateLabelsWithoutTouchingState(t *testing.T) {
 	s := NewStore()
 	t0 := time.Now()

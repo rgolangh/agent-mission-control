@@ -58,8 +58,9 @@ be watched but not driven from mission-control.
 - **Prefer plain `opencode` over `opencode --port N` / `opencode serve`.**
   With the bridge plugin, plain `opencode` gets an authenticated,
   rebinding-proof port. OpenCode's own server does not validate the `Host`
-  header, so a web page can attack it through DNS rebinding. If you need
-  `--port`, set `OPENCODE_SERVER_PASSWORD`.
+  header, so a web page can attack it through DNS rebinding. If you use a
+  password-protected native server, configure its URL with `-opencode`; the
+  password is not sent to auto-discovered endpoints.
 - **Do not bind the daemon beyond loopback** (`-listen 0.0.0.0:…`). The token
   protects the API, but there is no TLS, and remote access is not part of the
   design yet.
@@ -71,6 +72,7 @@ be watched but not driven from mission-control.
 
 ## Known limitations
 
-See "Remaining work" in the threat model: unbounded state from forged events
-by your own processes (L3), no credentials for native `--port` servers (L4),
-and release signatures (L5).
+See "Remaining work" in the threat model: same-user impostors may still be
+mistaken for a healthy native OpenCode server (L4), and release signatures
+(L5). Workflow/session state and OpenCode snapshot responses/event frames are
+bounded.
