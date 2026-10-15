@@ -46,6 +46,17 @@ func TestJudge(t *testing.T) {
 		{"request confirm", reply("I drafted both options above. Please confirm which one you want me to apply."), adapter.StatusNeedsInput, "request"},
 		{"request let me know which", reply("Let me know which environment to deploy to."), adapter.StatusNeedsInput, "request"},
 
+		// A question that isn't the last sentence: asked, then context.
+		{"question then context", reply("Which database should I use? Postgres is the default, SQLite is simpler to run."), adapter.StatusNeedsInput, "buried-question"},
+		{"question opens the message", reply("Should I delete the three unused migrations? They were superseded in March.\n\n- 0003_old_users.sql\n- 0007_tmp.sql\n- 0009_backfill.sql\n\nNothing references them anymore."), adapter.StatusNeedsInput, "buried-question"},
+		{"question mid last paragraph", reply("I mapped the API.\n\nThe v1 endpoints still have users. Should I keep them? I left them in place for now."), adapter.StatusNeedsInput, "buried-question"},
+		{"is that ok, then context", reply("I plan to rename the package to `store`. Is that OK? It touches 14 files."), adapter.StatusNeedsInput, "buried-question"},
+		{"self-answered question", reply("What was wrong? A stale cache key. I fixed it and all tests pass."), adapter.StatusDone, "finished"},
+		{"why question explained", reply("Why did the build break? The linter was upgraded. Pinned it back."), adapter.StatusDone, "finished"},
+		{"answered with yes", reply("Does it handle empty input now? Yes, there's a test for it."), adapter.StatusDone, "finished"},
+		{"early offer stays an offer", reply("Want me to also add a CLI flag for it? The config option works already."), adapter.StatusDone, "offer"},
+		{"question deep in a long report", reply("Refactored the store.\n\nShould I keep the old API? Kept it.\n\nAdded tests for Apply.\n\nUpdated docs."), adapter.StatusDone, "finished"},
+
 		// Blockers.
 		{"subagent could not (real)", reply("The subagent reported it could not complete the task: it has no `question` tool available to ask the user."), adapter.StatusStuck, "blocker"},
 		{"I couldn't", reply("I updated the handler, but I couldn't run the integration tests because Docker isn't running."), adapter.StatusStuck, "blocker"},
@@ -95,6 +106,7 @@ A few questions shape what I'd build:
 3. **Is the code going on GitHub?** The repo is local-only right now.`, adapter.StatusNeedsInput, "question"},
 		{"list intro says what it needs from you", "`install` could also run the plugin steps for you.\n\nTo build this I need:\n- Your GitHub username or org, for the module path.\n- The output of `gnome-shell --version` on the Fedora machine.\n- Whether I should go ahead and build it all.", adapter.StatusNeedsInput, "request"},
 		{"two things need your call", "I didn't work on the diagram package. Two things need your call:\n\n1. **Install the widget into your live bar?** That changes your `shell.json`.\n2. **Done vs. stuck:** may the daemon call an LLM? If not, I can build better rules.", adapter.StatusNeedsInput, "question"},
+		{"question, then one more sentence (2026-10-15)", "I've stopped. Nothing is committed and nothing is pushed.\n\nThe working tree is unchanged. The index is partly staged:\n- `ui/gnome/client.js`: a version with only the multi-select change\n- `ui/gnome/extension.js`: staged in full\n\nTo avoid that, I can clear the staging with `git reset`. Should I do that now, or leave the index alone until the other session is done? I won't touch git until you say.", adapter.StatusNeedsInput, "buried-question"},
 		{"waits for a confirmation", "4. **`CLAUDE.md`.** Keep it public as-is, trim it, or drop it.\n\nAfter that, creating the repo is one command. I'll run the create step once you confirm the name.", adapter.StatusNeedsInput, "request"},
 		{"blocked headline, then waits", "The repo is ready to push, but I couldn't push it: your token can't see the repo, so GitHub answers \"not found\".\n\n**Done while waiting:**\n- **Module path:** renamed.\n- **License:** Apache-2.0.\n- **Author:** rewritten.\n- **Remote:** set.\n\nOnce access works, tell me and I'll check the repo is private and empty, then push. Or run it yourself with `git push -u origin main`.", adapter.StatusNeedsInput, "request"},
 		{"blocked headline only", "I couldn't push the branch: the remote rejected the token.\n\nEverything else is committed:\n- Tests pass.\n- Docs updated.\n- Release workflow added.\n- CI pinned.\n- Changelog written.\n- Version bumped.\n- Tag prepared.", adapter.StatusStuck, "blocker"},

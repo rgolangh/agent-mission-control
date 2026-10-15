@@ -52,6 +52,9 @@ func JudgeTurn(ctx context.Context, r adapter.TurnReader, ev *adapter.SourceEven
 //	11 greeting           done         "How can I help?": ready for a task
 //	12 question           needs_input  ends by asking you something (not an offer),
 //	                                   incl. questions in a closing list
+//	   buried-question    needs_input  asks you something, then adds context
+//	                                   ("Which DB? Postgres is the default."),
+//	                                   in the last paragraph or the opening
 //	13 request            needs_input  "please confirm…", "once you confirm…",
 //	                                   "tell me and I'll…", "To build this I need:"
 //	14 blocker            stuck        reports it could not do something (closing
@@ -97,11 +100,19 @@ func Judge(t adapter.TurnEnd) Verdict {
 	}
 
 	q, isQuestion := closingQuestion(text)
+	buried := false
+	if !isQuestion {
+		q, isQuestion = buriedQuestion(text)
+		buried = isQuestion
+	}
 	if isQuestion && greetingRe.MatchString(q) {
 		return Verdict{adapter.StatusDone, "ready for a task", "greeting"}
 	}
 	offer := isQuestion && isOffer(q)
 	if isQuestion && !offer {
+		if buried {
+			return Verdict{adapter.StatusNeedsInput, "asks: " + q, "buried-question"}
+		}
 		return Verdict{adapter.StatusNeedsInput, "asks: " + q, "question"}
 	}
 	if r := closingRequest(text); r != "" {
@@ -137,8 +148,15 @@ var (
 	requestRe   = regexp.MustCompile(`(?i)^(please |could you |can you )?(let me know|tell me|confirm|choose|pick|select|decide|provide|share|clarify)\b.*\b(which|what|whether|how|where|when|who|your|if you (prefer|want)|or)\b`)
 	questionyRe = regexp.MustCompile(`(?i)\b(which|prefer|choose|pick|select|options?|questions?|decide|decisions?|need|confirm|your call|let me know|tell me)\b`)
 	waitingRe   = regexp.MustCompile(`(?i)\b(once|when|after|as soon as) you(?:'ve| have)? (confirm|decide|choose|reply|answer|approve|pick|grant|rename|fix|let me know|tell me|say)\b|\btell me (and|when|once|which|what|whether|if)\b|\blet me know (when|once|which|what|whether|how)\b|\byour call\b|\bwaiting (for|on) (you|your)\b|\bI'll wait\b`)
-	resolvedRe  = regexp.MustCompile(`(?i)\b(fixed|resolved|now (works|passes|pass)|all (tests )?pass(es|ed)?|no longer|was able to|succeeded|works now|(and|but) it works|works fine|confirmed|verified)\b`)
-	blockerRes  = []*regexp.Regexp{
+	// A question addressed to the user: what they should decide, prefer or
+	// allow. Agents also pose questions they answer themselves ("What was
+	// wrong? A stale cache."), which have none of these.
+	directedRe = regexp.MustCompile(`(?i)\b(should|shall|can|may|could|do|would) (i|we)\b|\b(do|would|did|could|can|will|are|have|should) you\b|\byou(?:'d)? (want|prefer|like|need|rather)\b|\bwant me\b|\byour (call|preference|choice|decision|thoughts|input|approval|take)\b|\bwhich (one|option|approach|of|do|would|should)\b|\b(ok|okay|alright|fine) (to|with|if)\b|\bis (that|this|it) (ok|okay|fine|alright|acceptable)\b|\bprefer\b`)
+	whyRe      = regexp.MustCompile(`(?i)^(why|how come)\b`)
+	answeredRe = regexp.MustCompile(`(?i)^(yes|no|yep|nope|because|it does|it doesn'?t)\b`)
+	paraRe     = regexp.MustCompile(`\n\s*\n`)
+	resolvedRe = regexp.MustCompile(`(?i)\b(fixed|resolved|now (works|passes|pass)|all (tests )?pass(es|ed)?|no longer|was able to|succeeded|works now|(and|but) it works|works fine|confirmed|verified)\b`)
+	blockerRes = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)\bI(?: was|'m| am)? (?:couldn'?t|could not|can'?t|cannot|wasn'?t able to|was not able to|unable to|not able to)\b`),
 		regexp.MustCompile(`(?i)\b(?:could not|couldn'?t|unable to|not able to|failed to|fails? to) (?:complete|finish|proceed|continue|resolve|fix|find|locate|access|reach|connect|install|build|compile|run|start|load|authenticate|reproduce)\b`),
 		regexp.MustCompile(`(?i)\bI (?:don'?t|do not) have (?:access|permission|the (?:credentials|permissions?|tools?))\b`),
@@ -218,6 +236,46 @@ func closingQuestion(text string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// buriedQuestion finds a question addressed to the user that is followed by
+// more text: in the last paragraph ("Which database should I use? Postgres
+// is the default.") or among the first two sentences of the message
+// ("Should I delete these? They were superseded." and then details). A
+// question in the middle of a long report is not counted: there it is
+// usually narration. Questions that are not addressed to the user, start
+// with "why", or are answered by the next sentence ("Does it work? Yes.")
+// are skipped.
+func buriedQuestion(text string) (string, bool) {
+	var paras [][]string
+	for _, p := range paraRe.Split(text, -1) {
+		if ss := sentences(p); len(ss) > 0 {
+			paras = append(paras, ss)
+		}
+	}
+	if len(paras) == 0 {
+		return "", false
+	}
+	check := func(ss []string, n int) (string, bool) {
+		for i, s := range ss {
+			if i == n {
+				break
+			}
+			if !strings.HasSuffix(s, "?") || !directedRe.MatchString(s) || whyRe.MatchString(s) {
+				continue
+			}
+			if i+1 < len(ss) && answeredRe.MatchString(ss[i+1]) {
+				continue
+			}
+			return truncate(s, 160), true
+		}
+		return "", false
+	}
+	last := paras[len(paras)-1]
+	if q, ok := check(last, len(last)); ok {
+		return q, true
+	}
+	return check(paras[0], 2)
 }
 
 // closingListIntro returns the line introducing a closing list when it says
