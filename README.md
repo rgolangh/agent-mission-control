@@ -4,14 +4,7 @@ One place to see the state of all your coding-agent sessions (who is
 working, who is **waiting on you**, who finished, who is stuck) and to answer
 them without hunting for the right terminal tab.
 
-```
-$ mission-control status
-STATUS       TITLE                     WHERE              ID        UPDATED  MESSAGE
-needs_input  Refactor auth middleware  ~/src/api          dmIe4nhh  12s ago  asks: Which session store should it use?
-stuck        Fix flaky sync test       ~/src/sync         QgSjmCSR  3m ago   blocked: I couldn't run the integration tests
-running      Write release notes       ~/src/docs         lqUuRN4g  now      working
-done         Bump dependencies         ~/src/api          TZsqhlgs  20m ago  finished: All tests pass.
-```
+![mission-control CLI: see which agents need you, read a question, answer it, approve a permission and nudge a stuck agent](docs/demo/cli.gif)
 
 The unit is the **workflow**, not the tool. Every agent session reports into
 one daemon through a small per-tool adapter. The daemon tracks state, works
@@ -31,6 +24,8 @@ Ways to look at it:
 - **Desktop UI:** a widget for [Omarchy](https://omarchy.org)'s shell, or a
   [GNOME Shell extension](ui/gnome/README.md). Both have an indicator, the
   workflow list, notifications, and a jump to the agent's terminal.
+
+<img src="docs/demo/omarchy.gif" width="480" alt="The Omarchy bar widget: the count of agents that need you, then the panel, where answered agents go from waiting to running to done">
 
 **Done vs stuck vs waiting** is decided by ordered, evidence-quoting rules
 (no LLM). They read how the turn ended: errors, finish reason, a closing

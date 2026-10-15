@@ -30,6 +30,9 @@ settings): `apiUrl` (default `http://127.0.0.1:4200`), `pollIntervalMs`,
 
 Mouse: left click toggles the panel, right click refreshes. Esc closes it.
 
+IPC: `omarchy-shell mission-control open|close|toggle`, for a keybind or a
+script (the README demo uses it).
+
 ## Constraints that shaped it
 
 - **Self-contained.** omarchy-shell loads third-party entry points by
