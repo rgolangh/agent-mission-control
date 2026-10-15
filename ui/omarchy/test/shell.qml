@@ -13,6 +13,7 @@ import Quickshell
 //   MC_URL     daemon API (default http://127.0.0.1:4200)
 //   MC_SHOT    write a PNG of the open panel here
 //   MC_ANSWER  answer the first pending ask with this choice, via the widget
+//              ("a|b": several picks for a multi-select question)
 ShellRoot {
   QtObject {
     id: fakeBar
@@ -61,6 +62,7 @@ ShellRoot {
         }
         w.open()
         var choice = Quickshell.env("MC_ANSWER")
+        if (choice && choice.indexOf("|") >= 0) choice = choice.split("|")
         var target = w.api.workflows.filter(function(x) { return x.pending && x.pending.length })[0]
         if (choice && target) {
           w.api.answer(target.source_id, target.pending[0].id, choice, function(ok, err) {

@@ -153,11 +153,13 @@ class Indicator extends PanelMenu.Button {
         const where = [model.tilde(w.location, HOME), `${model.statusLabel(w)} · ${model.age(w.updated_at)}`].filter(Boolean);
         this._infoItem(sub.menu, where.join('   '));
 
-        const {ask, question} = model.firstQuestion(w);
+        const {ask, question, several} = model.firstQuestion(w);
         const canInput = model.canInput(w);
         if (question) {
             this._infoItem(sub.menu, (question.header ? `${question.header}: ` : '') + question.question);
-            if (canInput) {
+            if (canInput && question.multiple)
+                this._multiSelect(sub.menu, w, ask.id, question.options || []);
+            else if (canInput) {
                 for (const opt of question.options || []) {
                     const item = new PopupMenu.PopupMenuItem('');
                     item.label.text = `→ ${model.clean(opt, 80)}`;
@@ -165,17 +167,21 @@ class Indicator extends PanelMenu.Button {
                     sub.menu.addMenuItem(item);
                 }
             }
+        } else if (several) {
+            // Neither the menu nor the CLI can answer a multi-question ask.
+            this._infoItem(sub.menu, ask.questions.map(q => `• ${q.question}`).join('\n'));
         } else if (w.stale) {
             this._infoItem(sub.menu, w.stale_reason || 'source unreachable');
         } else if (w.message) {
             this._infoItem(sub.menu, w.message);
         }
 
-        if (canInput && (question ? question.free_text : w.status !== 'running'))
-            sub.menu.addMenuItem(this._entryItem(question ? 'type an answer, Enter' : 'follow up / tell it how to continue, Enter',
-                text => (question ? this._answer(w, ask.id, text) : this._send(w, text))));
+        if (canInput && question && question.free_text)
+            sub.menu.addMenuItem(this._entryItem('type an answer, Enter', text => this._answer(w, ask.id, text)));
+        else if (model.canFollowUp(w))
+            sub.menu.addMenuItem(this._entryItem('follow up / tell it how to continue, Enter', text => this._send(w, text)));
 
-        if (!canInput && !w.stale && (question || w.status === 'needs_input'))
+        if ((!canInput || several) && !w.stale && (ask || w.status === 'needs_input'))
             this._infoItem(sub.menu, 'Answer in its terminal.');
 
         if (w.pids && w.pids.length && !w.stale) {
@@ -184,6 +190,31 @@ class Indicator extends PanelMenu.Button {
             sub.menu.addMenuItem(focus);
         }
         return sub;
+    }
+
+    // A question that allows several options: each option toggles a check
+    // mark (without closing the menu) and "Send selected" answers with all
+    // the picks at once.
+    _multiSelect(menu, w, askId, options) {
+        let picked = [];
+        const send = new PopupMenu.PopupMenuItem('Send selected');
+        send.setSensitive(false);
+        send.connect('activate', () => this._answer(w, askId, picked));
+
+        for (const opt of options) {
+            const item = new PopupMenu.PopupMenuItem('');
+            item.label.text = model.clean(opt, 80);
+            item.setOrnament(PopupMenu.Ornament.NONE);
+            // Shadow activate on this instance: the default emits 'activate',
+            // which closes the whole menu after one pick.
+            item.activate = () => {
+                picked = model.togglePick(picked, opt, options);
+                item.setOrnament(picked.includes(opt) ? PopupMenu.Ornament.CHECK : PopupMenu.Ornament.NONE);
+                send.setSensitive(picked.length > 0);
+            };
+            menu.addMenuItem(item);
+        }
+        menu.addMenuItem(send);
     }
 
     _entryItem(hint, onSubmit) {
@@ -203,7 +234,7 @@ class Indicator extends PanelMenu.Button {
 
     async _answer(w, askId, choice) {
         const r = await this._client.answer(w.source_id, askId, choice, this._cancellable);
-        this._report(r, `answered: ${choice}`);
+        this._report(r, `answered: ${[].concat(choice).join(', ')}`);
     }
 
     async _send(w, text) {

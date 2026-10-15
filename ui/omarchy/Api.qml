@@ -118,9 +118,11 @@ QtObject {
 
   // ref: the workflow's source_id (exact match on the daemon, and unlike the
   // full id it has no ':' to escape in a path).
+  // choice: an option label or free text; an array is several picks for one
+  // multi-select question (sent as `answers`, so labels may contain commas).
   function answer(ref, askId, choice, done) {
     request("POST", "/workflows/" + encodeURIComponent(ref) + "/answer",
-      { ask_id: askId, choice: choice },
+      Array.isArray(choice) ? { ask_id: askId, answers: [choice] } : { ask_id: askId, choice: choice },
       function(status, data) {
         if (done) done(status === 200, data && data.error ? data.error : (status === 0 ? "daemon unreachable" : ""))
         api.refresh()

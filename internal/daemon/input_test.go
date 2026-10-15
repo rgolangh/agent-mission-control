@@ -155,6 +155,14 @@ func TestAnswerValidation(t *testing.T) {
 	if got := fmt.Sprint(r.answers[0]); got != "[[a c]]" {
 		t.Errorf("multi answers = %s", got)
 	}
+	// The desktop UIs send picks as Answers, so a label with a comma survives.
+	s, r = bound(t, question("q1", true, false, "a", "b, strict"))
+	if _, err := s.Answer(ctx, "abcd1234", AnswerRequest{Answers: [][]string{{"a", "b, strict"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fmt.Sprintf("%q", r.answers[0]); got != `[["a" "b, strict"]]` {
+		t.Errorf("multi answers with a comma = %s", got)
+	}
 	s, _ = bound(t, question("q1", false, true, "a", "b"))
 	if _, err := s.Answer(ctx, "abcd1234", AnswerRequest{Answers: [][]string{{"a", "b"}}}); !errors.Is(err, ErrInvalidInput) {
 		t.Errorf("single-answer question took two: %v", err)

@@ -25,7 +25,17 @@ eq(m.age('2026-10-14T10:00:00.123456789Z', Date.parse('2026-10-14T10:05:00Z')), 
 eq(m.tilde('/home/u/src/x', '/home/u'), '~/src/x', 'tilde');
 eq(m.statusLabel(wfs[4]), 'needs input · stale', 'stale label');
 eq(m.firstQuestion(wfs[1]).question.question, 'Which?', 'first question');
+eq(m.firstQuestion(wfs[1]).several, false, 'one question is not several');
+const multiQ = {...wfs[1], pending: [{id: 'q2', questions: [{question: 'A?'}, {question: 'B?'}]}]};
+eq([m.firstQuestion(multiQ).question, m.firstQuestion(multiQ).several], [null, true], 'several questions: no single question to render');
 eq(m.canInput(wfs[1]), true, 'can input');
+eq(m.canFollowUp(wfs[1]), false, 'no follow-up while an ask is pending');
+eq(m.canFollowUp(multiQ), false, 'no follow-up while a multi-question ask is pending');
+eq(m.canFollowUp({...wfs[1], status: 'done', pending: []}), true, 'follow-up once idle');
+eq(m.canFollowUp({...wfs[1], status: 'running', pending: []}), false, 'no follow-up while running');
+eq(m.togglePick([], 'c', ['a', 'b', 'c']), ['c'], 'pick');
+eq(m.togglePick(['c'], 'a', ['a', 'b', 'c']), ['a', 'c'], 'picks keep option order');
+eq(m.togglePick(['a', 'c'], 'a', ['a', 'b', 'c']), ['c'], 'unpick');
 eq(m.canInput({...wfs[1], stale: true}), false, 'stale cannot input');
 eq(m.clean('\u001b]0;pwned\u0007ok\nline'), ']0;pwnedok\nline', 'control chars stripped, newline kept');
 eq(m.clean('x'.repeat(10), 5), 'xxxx…', 'length cap');

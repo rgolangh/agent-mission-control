@@ -465,7 +465,7 @@ Item {
     function choose(choice) {
       busy = true
       feedback = "sending…"
-      api.answer(workflow.source_id, ask.id, choice, function(ok, err) { wcard.report(ok, err, "answered: " + choice) })
+      api.answer(workflow.source_id, ask.id, choice, function(ok, err) { wcard.report(ok, err, "answered: " + [].concat(choice).join(", ")) })
     }
     function togglePick(opt) {
       var p = Object.assign({}, picked)
@@ -596,7 +596,7 @@ Item {
           label: "Send selected"
           enabled: !wcard.busy && Object.keys(wcard.picked).length > 0
           opacity: enabled ? 1 : 0.5
-          onActivated: wcard.choose(Object.keys(wcard.picked).join(","))
+          onActivated: wcard.choose(wcard.question.options.filter(function(o) { return !!wcard.picked[o] }))
         }
       }
 
@@ -604,7 +604,7 @@ Item {
       Text {
         textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
-        visible: !wcard.canInput && !wcard.workflow.stale && (!!wcard.question || wcard.workflow.status === "needs_input")
+        visible: !wcard.canInput && !wcard.workflow.stale && (!!wcard.question || (!wcard.ask && wcard.workflow.status === "needs_input"))
         text: (wcard.question && wcard.question.options && wcard.question.options.length
                  ? "Options: " + wcard.question.options.join(" · ") + "\n" : "")
               + "Answer in its terminal" + (wcard.workflow.pids && wcard.workflow.pids.length ? " (\uf120 jumps there)" : "") + "."
@@ -624,8 +624,10 @@ Item {
       Text {
         textFormat: Text.PlainText // agent text: never HTML
         width: parent.width
-        visible: !!wcard.ask && !wcard.question
-        text: "This ask has several questions; answer it with `mission-control show " + String(wcard.workflow.source_id).slice(-8) + "`."
+        visible: !!wcard.ask && !wcard.question && !wcard.workflow.stale
+        // Neither the panel nor the CLI can answer a multi-question ask.
+        text: (wcard.ask && wcard.ask.questions ? wcard.ask.questions.map(function(q) { return "• " + q.question }).join("\n") + "\n" : "")
+              + "Answer in its terminal" + (wcard.workflow.pids && wcard.workflow.pids.length ? " (\uf120 jumps there)" : "") + "."
         color: root.dim
         font.family: root.fontFamily
         font.pixelSize: 11

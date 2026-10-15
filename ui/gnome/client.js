@@ -66,9 +66,12 @@ export class Client {
         return {...r, workflows: r.status === 200 && r.data ? r.data.workflows || [] : []};
     }
 
-    // ref: the workflow's source_id (no ':' to escape in a path).
+    // ref: the workflow's source_id (no ':' to escape in a path). choice is
+    // an option label or free text; an array is several picks for one
+    // multi-select question (sent as `answers`, so labels may contain commas).
     answer(ref, askId, choice, cancellable = null) {
-        return this.request('POST', `/workflows/${encodeURIComponent(ref)}/answer`, {ask_id: askId, choice}, cancellable);
+        const body = Array.isArray(choice) ? {ask_id: askId, answers: [choice]} : {ask_id: askId, choice};
+        return this.request('POST', `/workflows/${encodeURIComponent(ref)}/answer`, body, cancellable);
     }
 
     send(ref, text, cancellable = null) {

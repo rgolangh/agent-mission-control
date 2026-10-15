@@ -75,15 +75,34 @@ export function statusLabel(w) {
     return w.stale ? `${s} · stale` : s;
 }
 
-// The first pending ask, if it is a single question the menu can render.
+// The first pending ask, and its question if it is a single one the menu can
+// render. `several` marks an ask with several questions, answered in the
+// agent's own terminal.
 export function firstQuestion(w) {
     const ask = w.pending && w.pending.length ? w.pending[0] : null;
-    const q = ask && ask.questions && ask.questions.length === 1 ? ask.questions[0] : null;
-    return {ask, question: q};
+    const n = ask && ask.questions ? ask.questions.length : 0;
+    return {ask, question: n === 1 ? ask.questions[0] : null, several: n > 1};
 }
 
 export function canInput(w) {
     return !!(w.capabilities && w.capabilities.can_receive_input && !w.stale);
+}
+
+// A follow-up message is possible once the agent is idle and not waiting on
+// an ask (the daemon refuses a send while one is pending).
+export function canFollowUp(w) {
+    return canInput(w) && !(w.pending && w.pending.length) && w.status !== 'running';
+}
+
+// Toggles an option in a multi-select pick list, keeping the question's
+// option order, so the answer reads the way the agent listed them.
+export function togglePick(picked, option, options) {
+    const set = new Set(picked);
+    if (set.has(option))
+        set.delete(option);
+    else
+        set.add(option);
+    return options.filter(o => set.has(o));
 }
 
 // Workflows that newly need you since the previous poll, so each transition
