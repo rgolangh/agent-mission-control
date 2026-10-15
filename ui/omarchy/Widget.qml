@@ -42,6 +42,16 @@ Item {
   function close() { opened = false }
   function toggle() { opened = !opened }
 
+  // `omarchy-shell mission-control toggle` (e.g. from a Hyprland keybind),
+  // like the shell's own widgets. With a bar on several monitors the last
+  // one loaded gets the target.
+  IpcHandler {
+    target: "mission-control"
+    function open(): void { root.open() }
+    function close(): void { root.close() }
+    function toggle(): void { root.toggle() }
+  }
+
   // The daemon writes a fresh token on every start; only this user can read it.
   FileView {
     id: tokenFile
