@@ -65,12 +65,12 @@ be watched but not driven from mission-control.
   design yet.
 - **Pin what you install**: the OpenCode plugin specifier to a tag or commit,
   and release binaries checked against their published checksums.
-- The daemon logs workflow titles and messages to the journal. If agents may
-  print secrets, mind your journal retention.
+- The daemon logs only workflow IDs, statuses and rules. `serve -log-text`
+  also logs titles and messages (handy when tuning the rules); the journal
+  keeps them, and agents may print secrets.
 
 ## Known limitations
 
-See "Remaining work" in the threat model: control characters in CLI output
-(L1), unbounded state from forged events by your own processes (L3), no
-credentials for native `--port` servers (L4), supply-chain pinning (L5), and
-agent text in logs (L6).
+See "Remaining work" in the threat model: unbounded state from forged events
+by your own processes (L3), no credentials for native `--port` servers (L4),
+and release signatures (L5).

@@ -118,10 +118,11 @@ export function newlyNeedingYou(workflows, previous) {
     return {next, fresh};
 }
 
-// Strips C0/C1 control characters and caps length: agent text goes into
-// labels and notifications as data, never formatting.
+// Strips C0/C1 control characters, bidi overrides and zero-width characters
+// (as the daemon does, see adapter.CleanText) and caps length: agent text
+// goes into labels and notifications as data, never formatting.
 export function clean(text, max = 300) {
     // eslint-disable-next-line no-control-regex
-    const s = String(text ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '');
+    const s = String(text ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g, '');
     return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }

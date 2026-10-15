@@ -400,6 +400,13 @@ func Uninstall(e Env, opt Options) error {
 	sort.Strings(paths)
 	dirs := map[string]bool{}
 	for _, p := range paths {
+		// Install never writes through a symlink, and uninstall must not
+		// delete through one: the path may now lead into a checkout.
+		if underSymlink(e.Home, p) {
+			fmt.Fprintf(e.Out, "  kept       %s (symlink: left alone)\n", tilde(e, p))
+			delete(m.Files, p)
+			continue
+		}
 		cur, err := os.ReadFile(p)
 		switch {
 		case err != nil:

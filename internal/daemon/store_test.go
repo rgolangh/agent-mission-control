@@ -106,3 +106,20 @@ func TestMetadataOnlyEventsUpdateLabelsWithoutTouchingState(t *testing.T) {
 		t.Errorf("title lost after status event: %q", w.Title)
 	}
 }
+
+// Agent text is stored, and so served to the CLI, the UIs and MCP, without
+// terminal escapes or bidi overrides (threat model L1, N6).
+func TestApplyStoresCleanText(t *testing.T) {
+	s := NewStore()
+	e := ev("a", adapter.StatusNeedsInput, "asked: \x1b]0;pwned\x07ok?", time.Now())
+	e.Title = "fix ‮gnp.exe"
+	e.Ask = &adapter.Ask{ID: "q1", Kind: adapter.AskKindQuestion, Questions: []adapter.AskQuestion{{Question: "go\x1b[2J?", Options: []string{"yes", "n\u009bo"}}}}
+	s.Apply(e)
+	w, _ := s.Get("opencode:a")
+	if w.Message != "asked: ]0;pwnedok?" || w.Title != "fix gnp.exe" {
+		t.Errorf("stored %q / %q", w.Message, w.Title)
+	}
+	if q := w.Pending[0].Questions[0]; q.Question != "go[2J?" || q.Options[1] != "no" {
+		t.Errorf("stored ask %+v", q)
+	}
+}

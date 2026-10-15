@@ -69,7 +69,10 @@ const server = async ({ serverUrl, client }) => {
       const health = req.method === "GET" && url.pathname === "/global/health"
       if (!health && !authorized(req)) return deny(401, "missing or wrong token")
 
-      const fwd = new Request(new URL(url.pathname + url.search, serverUrl), req)
+      // Concatenate onto the inner server's origin rather than resolve the
+      // path against it: a path like "//other.host/x" would resolve to that
+      // other host.
+      const fwd = new Request(new URL(serverUrl).origin + url.pathname + url.search, req)
       fwd.headers.delete("authorization") // ours, not the inner server's
       return inner.fetch(fwd)
     },

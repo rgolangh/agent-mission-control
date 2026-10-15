@@ -13,7 +13,7 @@ import (
 // claudeHooks ingests Claude Code hook payloads posted by
 // `mission-control hook claude-code`. It answers fast: the hook command is
 // holding up Claude while it waits.
-func claudeHooks(ctx context.Context, store *daemon.Store, cc *claudecode.Adapter, logf func(string, ...any)) http.HandlerFunc {
+func claudeHooks(ctx context.Context, store *daemon.Store, cc *claudecode.Adapter, logf func(string, ...any), logText bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var h claudecode.Hook
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20)).Decode(&h); err != nil {
@@ -42,12 +42,8 @@ func claudeHooks(ctx context.Context, store *daemon.Store, cc *claudecode.Adapte
 		}
 		changed := store.Apply(ev)
 		store.Bind(id, nil, claudecode.Name) // read-only: no responder
-		switch {
-		case changed && ev.Gone:
-			logf("%s gone — %s", id, ev.Message)
-		case changed:
-			wf, _ := store.Get(id)
-			logf("%s %s — %s%s%s", id, ev.Status, ev.Message, quoted(wf.Title), rule)
+		if changed {
+			logf("%s", changeLine(store, id, ev, rule, logText))
 		}
 	}
 }

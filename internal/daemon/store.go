@@ -125,6 +125,7 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	if id == "" || ev.Status == adapter.StatusUnknown {
 		return false
 	}
+	ev.Clean() // agent text is stored, and so served, without control characters
 
 	s.mu.Lock()
 	defer s.mu.Unlock()

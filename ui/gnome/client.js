@@ -1,7 +1,9 @@
 // HTTP client for the mission-control daemon, for GNOME Shell (and plain
 // gjs, where it is tested). The daemon's TCP port requires the bearer token
-// it writes to $XDG_RUNTIME_DIR/mission-control/token on every start, so the
-// token is re-read whenever a request is refused.
+// it writes to $XDG_RUNTIME_DIR/mission-control/token on every start and
+// removes when it stops. The token is re-read before every request, and with
+// no token file there is no request: while the daemon is down, whatever else
+// holds its port gets neither a token nor your answers.
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Soup from 'gi://Soup?version=3.0';
@@ -13,27 +15,29 @@ export class Client {
     constructor(baseUrl = 'http://127.0.0.1:4200') {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this._session = new Soup.Session({timeout: 6});
-        this._token = '';
         const runtime = GLib.getenv('XDG_RUNTIME_DIR') || '';
         this._tokenFile = Gio.File.new_for_path(`${runtime}/mission-control/token`);
     }
 
-    async _loadToken(cancellable) {
+    async _token(cancellable) {
         try {
             const [bytes] = await this._tokenFile.load_contents_async(cancellable);
-            this._token = new TextDecoder().decode(bytes).trim();
-        } catch {
-            this._token = '';
+            return new TextDecoder().decode(bytes).trim();
+        } catch (e) {
+            if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                throw e;
+            return '';
         }
     }
 
-    // Returns {status, data}; status 0 means the daemon is unreachable.
-    async request(method, path, body = undefined, cancellable = null, retry = true) {
-        if (!this._token)
-            await this._loadToken(cancellable);
+    // Returns {status, data}; status 0 means the daemon is not running
+    // (no token file) or unreachable.
+    async request(method, path, body = undefined, cancellable = null) {
+        const token = await this._token(cancellable);
+        if (!token)
+            return {status: 0, data: null};
         const msg = Soup.Message.new(method, this.baseUrl + path);
-        if (this._token)
-            msg.request_headers.append('Authorization', `Bearer ${this._token}`);
+        msg.request_headers.append('Authorization', `Bearer ${token}`);
         if (body !== undefined) {
             // The daemon refuses POSTs that are not JSON (CSRF guard).
             const bytes = new TextEncoder().encode(JSON.stringify(body));
@@ -49,11 +53,6 @@ export class Client {
             return {status: 0, data: null};
         }
         const status = msg.get_status();
-        if (status === 401 && retry) {
-            // The daemon restarted with a new token.
-            this._token = '';
-            return this.request(method, path, body, cancellable, false);
-        }
         let data = null;
         try {
             data = JSON.parse(text);

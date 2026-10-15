@@ -72,12 +72,13 @@ func judgeCmd(args []string) error {
 		return err
 	}
 	v := daemon.Judge(adapter.TurnEnd{Text: string(b), Finish: "stop", Replied: true})
-	fmt.Printf("%s  (rule: %s)\n%s\n", v.Status, v.Rule, v.Message)
+	fmt.Printf("%s  (rule: %s)\n%s\n", v.Status, v.Rule, adapter.CleanText(v.Message))
 	return nil
 }
 
+// oneLine flattens agent text for a table cell, without control characters.
 func oneLine(s string, n int) string {
-	s = strings.Join(strings.Fields(s), " ")
+	s = strings.Join(strings.Fields(adapter.CleanText(s)), " ")
 	if r := []rune(s); len(r) > n {
 		return string(r[:n-1]) + "…"
 	}

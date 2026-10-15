@@ -137,6 +137,32 @@ func TestSymlinkedDevSetupIsLeftAlone(t *testing.T) {
 	}
 }
 
+// A plugin directory installed as files and later replaced by a symlink into
+// a checkout (switching to a dev setup) must not lose the checkout's files
+// to uninstall, even when their content matches what install wrote.
+func TestUninstallNeverDeletesThroughASymlink(t *testing.T) {
+	e, _, _ := testEnv(t, "claude")
+	if err := Install(e, "v1", Options{Only: map[string]bool{"claude-code": true}}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(e.Home, ".claude/skills/mission-control")
+	repo := t.TempDir()
+	if err := os.CopyFS(repo, os.DirFS(dir)); err != nil {
+		t.Fatal(err)
+	}
+	os.RemoveAll(dir)
+	os.Symlink(repo, dir)
+	if err := Uninstall(e, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "hooks", "hooks.json")); err != nil {
+		t.Errorf("uninstall deleted a checkout file through the symlink: %v", err)
+	}
+	if _, err := os.Stat(e.ManifestPath()); err == nil {
+		t.Error("manifest still lists files uninstall left behind")
+	}
+}
+
 func TestDryRunChangesNothing(t *testing.T) {
 	e, ran, out := testEnv(t, "opencode", "claude")
 	if err := Install(e, "v1", Options{DryRun: true}); err != nil {

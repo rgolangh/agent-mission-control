@@ -89,7 +89,7 @@ func main() {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  mission-control serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover]
+  mission-control serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
   mission-control status [-addr http://127.0.0.1:4200] [-json]
   mission-control show   [-addr URL] [-json] <id>            pending asks + history
   mission-control answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
@@ -124,6 +124,7 @@ func serve(args []string) error {
 	discover := fs.Bool("discover", false, "also find and attach to running `opencode --port N` servers automatically (Linux)")
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
+	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
 	_ = fs.Parse(args)
 	if len(servers) == 0 && !*discover {
 		servers = stringList{"http://localhost:4096"}
@@ -176,13 +177,10 @@ func serve(args []string) error {
 			}
 			changed := store.Apply(ev)
 			store.Bind(id, client, url) // answer/send route back through this server
-			if changed && ev.Gone {
-				logf("%s:%s gone — %s", ev.Adapter, ev.SourceID, ev.Message)
-			} else if changed {
-				wf, _ := store.Get(id)
-				logf("%s:%s %s — %s%s%s", ev.Adapter, ev.SourceID, ev.Status, ev.Message, quoted(wf.Title), rule)
+			if changed {
+				logf("%s", changeLine(store, daemon.WorkflowID(ev), ev, rule, *logText))
 			} else if ev.SourceID == "" {
-				logf("ignored unattributed event: %s", ev.Message)
+				logf("ignored unattributed event (%s)", ev.Status)
 			}
 		}
 		client.SubscribeWithHooks(ctx, staleness, opencode.Hooks{
@@ -265,7 +263,7 @@ func serve(args []string) error {
 	cc := claudecode.New()
 	mux := http.NewServeMux()
 	mux.Handle("/", daemon.Handler(store))
-	mux.Handle("POST /hooks/claude-code", daemon.Guard(claudeHooks(ctx, store, cc, logf)))
+	mux.Handle("POST /hooks/claude-code", daemon.Guard(claudeHooks(ctx, store, cc, logf, *logText)))
 	go func() {
 		tick := time.NewTicker(10 * time.Second)
 		defer tick.Stop()
@@ -316,7 +314,7 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 		ul.Close()
 		return err
 	}
-	servers := []*http.Server{{Handler: mux}}
+	servers := []*http.Server{newServer(mux)}
 	listeners := []net.Listener{ul}
 	logf("API on unix:%s (try: mission-control status)", sock)
 
@@ -332,7 +330,10 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 			tl.Close()
 			return err
 		}
-		servers = append(servers, &http.Server{Handler: daemon.RequireToken(token, mux)})
+		// While the daemon is down its port is free for anyone to bind, so
+		// clients must not find a token to present to whoever does.
+		defer removeToken(token)
+		servers = append(servers, newServer(daemon.RequireToken(token, mux)))
 		listeners = append(listeners, tl)
 		logf("API on http://%s (token in %s)", tl.Addr(), paths.Token())
 	}
@@ -355,6 +356,27 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 	}
 	_ = os.Remove(sock)
 	return nil
+}
+
+// newServer bounds how long a client may take to send its request headers
+// and how long an idle keep-alive connection is kept, so local processes
+// can't pile up connections before authenticating. There is no read or write
+// timeout: answers wait on the agent, and responses are small.
+func newServer(h http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+		MaxHeaderBytes:    64 << 10,
+	}
+}
+
+// removeToken deletes the token file if it still holds token (it is not
+// another daemon's).
+func removeToken(token string) {
+	if cur, err := paths.ReadSecret(paths.Token()); err == nil && cur == token {
+		_ = os.Remove(paths.Token())
+	}
 }
 
 // writeToken creates a fresh random token and stores it, mode 0600, at
@@ -416,11 +438,28 @@ func status(args []string) error {
 	return tw.Flush()
 }
 
-func quoted(title string) string {
-	if title == "" {
-		return ""
+// changeLine describes a state change for the log: the source, its new
+// status and the deciding rule. Agent-written text (the message and the
+// workflow's title) is included only with -log-text: the journal is
+// persistent, and that text can quote secrets an agent printed. The store
+// holds it cleaned of control characters.
+func changeLine(store *daemon.Store, id string, ev adapter.SourceEvent, rule string, withText bool) string {
+	what := string(ev.Status)
+	if ev.Gone {
+		what = "gone"
 	}
-	return fmt.Sprintf("  [%s]", title)
+	line := id + " " + what + rule
+	if !withText {
+		return line
+	}
+	msg := adapter.CleanText(ev.Message)
+	if wf, ok := store.Get(store.WorkflowFor(ev)); ok && !ev.Gone {
+		msg = wf.Message
+		if wf.Title != "" {
+			msg += "  [" + wf.Title + "]"
+		}
+	}
+	return line + " — " + msg
 }
 
 func orDash(s string) string {

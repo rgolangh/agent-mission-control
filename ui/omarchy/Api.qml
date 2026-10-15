@@ -9,7 +9,9 @@ QtObject {
 
   property string baseUrl: "http://127.0.0.1:4200"
   // The daemon's TCP port requires its bearer token (regenerated on every
-  // daemon start; the widget re-reads the file when it changes).
+  // daemon start and removed when it stops; the widget re-reads the file).
+  // No token, no request: while the daemon is down, whatever else holds its
+  // port gets neither a token nor your answers.
   property string token: ""
   property int interval: 2000
   property bool active: true
@@ -53,6 +55,7 @@ QtObject {
   }
 
   function request(method, path, body, done) {
+    if (!token) { done(0, null); return }
     var xhr = new XMLHttpRequest()
     xhr.onreadystatechange = function() {
       if (xhr.readyState !== XMLHttpRequest.DONE) return
@@ -61,7 +64,7 @@ QtObject {
       done(xhr.status, data)
     }
     xhr.open(method, baseUrl.replace(/\/$/, "") + path)
-    if (token) xhr.setRequestHeader("Authorization", "Bearer " + token)
+    xhr.setRequestHeader("Authorization", "Bearer " + token)
     if (body !== undefined) {
       // The daemon refuses POSTs that are not JSON (CSRF guard).
       xhr.setRequestHeader("Content-Type", "application/json")

@@ -1,7 +1,10 @@
 # mission-control threat model
 
 Status: analysis of 2026-10-14 (against `5b53470`), updated the same day
-after fixing every finding rated Medium or above. Each finding says how it
+after fixing every finding rated Medium or above. Re-reviewed 2026-10-15
+(against `84b4cd9` plus the GNOME extension, installer and release work):
+earlier fixes re-verified live, new findings N1–N6 fixed, L1 and L6 fixed
+(section 8). Each finding says how it
 was established: **verified** (reproduced against the running system),
 **design** (follows from the code or architecture, not exploited), or
 **unverified** (depends on third-party behaviour not tested). Each fixed
@@ -15,7 +18,9 @@ finding also says how the fix was verified.
 | M2 | Unauthenticated daemon API on loopback TCP | Medium | **Fixed** |
 | M3 | Forged hook makes the daemon read arbitrary files | Medium | **Fixed** |
 | M4 | Widget renders agent text as HTML | Medium | **Fixed** |
-| L1–L7 | See below | Low | Open (L2 now limited to your own processes by M2) |
+| L1, L6 | Terminal escapes in CLI output; agent text in the journal | Low | **Fixed** 2026-10-15 |
+| L2–L5, L7 | See below | Low | Open (L2 now limited to your own processes by M2; L5 partly done) |
+| N1–N6 | Review of 2026-10-15, see section 8 | Bug / Low | **Fixed** |
 
 ## 1. What the system is
 
@@ -225,6 +230,14 @@ screen. Some terminals honour more dangerous sequences (OSC 52 clipboard
 writes, hyperlinks). *Fix:* strip C0/C1 control characters from all
 agent-sourced strings before printing (CLI and `show`).
 
+> **Fixed** (2026-10-15, with N6). `adapter.CleanText` removes C0/C1
+> controls, bidi overrides and isolates, zero-width characters and invalid
+> UTF-8. `Store.Apply` cleans every event's message, title, location and
+> asks once, on the way in, so the CLI, both UIs, MCP and the log all get
+> clean text; `judge` (which reads transcripts directly) cleans what it
+> prints. *Verified* by tests (`TestCleanText`, `TestApplyStoresCleanText`)
+> and live: `judge` on a file with `ESC]0;…BEL` prints no ESC byte.
+
 **L2. Spoofed state and notifications.** *Design.*
 Anyone who can POST to the hook endpoint (M2) can create workflows with any
 title, question and terminal PIDs. That fakes "Agent needs you: …"
@@ -257,6 +270,11 @@ Go modules).
 The daemon logs titles, messages and questions to journald (persistent on
 most distros). They may quote secrets an agent printed. *Fix:* log IDs and
 statuses, not agent text, by default; `-log-text` to opt in.
+
+> **Fixed** (2026-10-15). State changes log `<workflow id> <status>  (rule: …)`
+> only; `serve -log-text` adds the (cleaned) message and title. Unattributed
+> events log their status, not their text. *Verified* by test
+> (`TestChangeLineKeepsAgentTextOutByDefault`) and live in the journal.
 
 **L7. The bridge depends on a private OpenCode SDK internal.** *Design.*
 `client._client.getConfig().fetch` can change in any release. This is an
@@ -293,12 +311,37 @@ sessions becomes cross-user prompt-injection input (H2 at team scale).
 
 1. **Upstream:** report OpenCode's missing Host validation (it affects
    `opencode --port` and `opencode serve`).
-2. **L1:** strip control characters from agent text in CLI output.
-3. **L3:** cap and expire forged or idle sessions.
-4. **L4:** credentials for discovered native `--port` servers (bridged
-   sessions are done); optionally verify the executable.
-5. **L5:** pin plugin specifiers; checksums or signatures for releases; pin
-   Actions by SHA. Do this together with the GitHub/Fedora packaging.
-6. **L6:** keep agent text out of the journal by default.
-7. Before any remote or shared view (section 6): authentication, TLS,
+2. **L3:** cap and expire forged or idle sessions.
+3. **L4:** credentials for discovered native `--port` servers (bridged
+   sessions are done); optionally verify the executable. Bound the size of
+   JSON responses read from OpenCode servers.
+4. **L5:** signatures (e.g. Sigstore) for release binaries. Done: Actions
+   pinned by SHA, SHA-256 checksums published with each release, and the
+   plugins ship inside the binary (`mission-control install`), so there is
+   no separate plugin specifier to pin.
+5. The bridge's token file survives a killed (SIGTERM) OpenCode, since the
+   plugin's `dispose` doesn't run. Harmless (the daemon reads it by live
+   PID, and a reused PID's new process overwrites it), but the daemon could
+   remove files of exited processes.
+6. Before any remote or shared view (section 6): authentication, TLS,
    per-workflow authorization, audit log.
+
+## 8. Review of 2026-10-15
+
+Re-verified live: runtime dir 0700, socket and token 0600; TCP without
+token, or with a wrong one → 401; forged `Host` → 403; `text/plain` POST →
+415; the hook endpoint over TCP without a token → 401; the daemon serves no
+HTTP/2 (h2c refused). Bridge: health open, no token → 401, forged `Host` /
+`Origin` → 403. MCP still offers only `once`/`reject` for permissions.
+
+| ID | Finding | Severity | Fix, and how it was verified |
+|---|---|---|---|
+| N1 | `uninstall` deleted files through a symlink: a plugin directory installed as files and later replaced by a symlink into a checkout lost the checkout's files. *Verified* by a probe test. | Bug (data loss) | `Uninstall` skips paths under a symlink, as `Install` does. Test `TestUninstallNeverDeletesThroughASymlink`. |
+| N2 | The locally built daemon used Go 1.27.1, affected by 9 standard-library vulnerabilities (GO-2026-6603…6617, mostly HTTP/2, which the daemon does not serve; the textproto header-memory bypass was reachable pre-auth by local processes). The v0.1.0 release was built with 1.27.2. *govulncheck.* | Low | `toolchain go1.27.2` in `go.mod` (older local Go fetches it) and `mise.toml` pinned to 1.27.2. govulncheck: no vulnerabilities. |
+| N3 | The bridge resolved the request path against the inner server URL, so `//other.host/x` named another host. Needs the bridge token. *Verified* not exploitable on OpenCode 1.18.33: its in-process fetch ignores the host (a listener on the named host got nothing). | Low (hardening) | The bridge concatenates the path onto the inner origin. Verified live on a fresh `opencode serve`: all bridge controls unchanged. |
+| N4 | The token file outlived the daemon, and the UIs kept calling 127.0.0.1:4200 while it was down: on a shared machine, a user binding that port got the (stale) token, could show fake workflows and receive typed answers. *Design.* | Low (shared machines) | The daemon removes its token file on shutdown (only if it is still its own). The GNOME client re-reads the token before every request and sends nothing without one; the widget's FileView drops the token when the file goes (verified) and `Api.request` sends nothing without one. Tests: `TestTokenFileLivesOnlyAsLongAsTheDaemon`, `client.test.js` (a listener on the port saw 0 connections). Live: stop → no token file, start → new one. |
+| N5 | No HTTP server timeouts: local processes could hold connections open before authenticating. *Design.* | Low | `ReadHeaderTimeout` 5s, `IdleTimeout` 2m, 64 KB header cap (no write timeout: answers wait on agents). Live: a half-sent request is closed after 5.0s. |
+| N6 | Bidi overrides and zero-width characters in agent text could make titles and questions display differently than they read (CLI, GNOME, QML). *Design.* | Low | With L1: `adapter.CleanText` at ingest; GNOME's `clean()` strips the same set. |
+
+Not findings: the transcript tail reader reads to end of file after
+seeking (same-user files only).

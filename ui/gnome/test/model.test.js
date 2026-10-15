@@ -39,6 +39,7 @@ eq(m.togglePick(['a', 'c'], 'a', ['a', 'b', 'c']), ['c'], 'unpick');
 eq(m.canInput({...wfs[1], stale: true}), false, 'stale cannot input');
 eq(m.clean('\u001b]0;pwned\u0007ok\nline'), ']0;pwnedok\nline', 'control chars stripped, newline kept');
 eq(m.clean('x'.repeat(10), 5), 'xxxx…', 'length cap');
+eq(m.clean('run \u202etxt.exe\u200b'), 'run txt.exe', 'bidi override and zero-width stripped');
 
 const first = m.newlyNeedingYou(wfs, null);
 eq(first.fresh.length, 0, 'first poll notifies nothing');

@@ -1,4 +1,5 @@
 // gjs -m ui/gnome/test/client.test.js   (needs a running daemon)
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import {Client} from '../client.js';
 
@@ -16,14 +17,31 @@ const check = (ok, what) => {
         const r = await c.workflows();
         check(r.status === 200 && Array.isArray(r.workflows), `authorized with the token file (${r.workflows.length} workflows)`);
 
-        c._token = 'stale-token-from-a-previous-daemon';
-        const r2 = await c.workflows();
-        check(r2.status === 200, 'recovers from a stale token by re-reading the file');
+        const tmp = GLib.dir_make_tmp('mc-client-XXXXXX');
+        const wrong = new Client();
+        wrong._tokenFile = Gio.File.new_for_path(`${tmp}/token`);
+        GLib.file_set_contents(`${tmp}/token`, 'not-the-token\n');
+        const r2 = await wrong.workflows();
+        check(r2.status === 401, `a wrong token is refused (${r2.status})`);
 
-        const bad = new Client();
-        bad._tokenFile = bad._tokenFile.get_parent().get_child('no-such-token');
-        const r3 = await bad.workflows();
-        check(r3.status === 401, `without a token the daemon refuses (${r3.status})`);
+        // Daemon down (no token file) and something else on its port: the
+        // client must not talk to it at all.
+        let connections = 0;
+        const squatter = new Gio.SocketService();
+        const port = squatter.add_any_inet_port(null);
+        squatter.connect('incoming', () => {
+            connections++;
+            return false;
+        });
+        squatter.start();
+        const none = new Client(`http://127.0.0.1:${port}`);
+        none._tokenFile = Gio.File.new_for_path(`${tmp}/no-such-token`);
+        const r3 = await none.workflows();
+        await none.answer('ses_x', 'q', 'yes');
+        squatter.stop();
+        check(r3.status === 0 && connections === 0, `no token file: no request at all (${r3.status}, ${connections} connection(s))`);
+        GLib.unlink(`${tmp}/token`);
+        GLib.rmdir(tmp);
 
         const down = new Client('http://127.0.0.1:1');
         const r4 = await down.workflows();
