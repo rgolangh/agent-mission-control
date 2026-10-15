@@ -125,7 +125,7 @@ Item {
   function statusGlyph(s) {
     switch (s) {
     case "needs_input": return "" // question-circle
-    case "running": return ""     // spinner
+    case "running": return "●··"   // first frame of the Larson scanner
     case "stuck": return ""       // pause-circle
     case "failed": return ""      // times-circle
     case "done": return ""        // check-circle
@@ -204,21 +204,63 @@ Item {
     anchors.centerIn: parent
     spacing: 4
 
-    Text {
-      textFormat: Text.PlainText // agent text: never HTML
-      id: icon
+    Item {
+      id: iconMark
+      width: 22
+      height: 22
       anchors.verticalCenter: parent.verticalCenter
-      text: "󰚚" // nf-md-robot_outline
-      font.family: root.fontFamily
-      font.pixelSize: 14
-      color: !api.reachable ? root.dim : (api.attentionCount ? root.urgent : root.fg)
 
-      SequentialAnimation on opacity {
-        running: api.waitingCount > 0
-        loops: Animation.Infinite
-        alwaysRunToEnd: true
-        NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
-        NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutSine }
+      Canvas {
+        id: runOrbit
+        anchors.fill: parent
+        visible: api.reachable && api.runningCount > 0
+        property color ink: !api.reachable ? root.dim : (api.attentionCount ? root.urgent : root.fg)
+        onInkChanged: requestPaint()
+        onVisibleChanged: requestPaint()
+        onPaint: {
+          var ctx = getContext("2d")
+          ctx.clearRect(0, 0, width, height)
+          var cx = width / 2
+          var cy = height / 2
+          var radius = 9.5
+          var end = Math.PI * 0.65
+          ctx.strokeStyle = ink
+          ctx.lineWidth = 1.3
+          ctx.lineCap = "round"
+          ctx.beginPath()
+          ctx.arc(cx, cy, radius, -Math.PI * 0.85, end, false)
+          ctx.stroke()
+          ctx.fillStyle = ink
+          ctx.beginPath()
+          ctx.arc(cx + radius * Math.cos(end), cy + radius * Math.sin(end), 1.5, 0, Math.PI * 2)
+          ctx.fill()
+        }
+
+        RotationAnimation on rotation {
+          from: 0
+          to: 360
+          duration: 1000
+          loops: Animation.Infinite
+          running: runOrbit.visible
+        }
+      }
+
+      Text {
+        textFormat: Text.PlainText // agent text: never HTML
+        id: icon
+        anchors.centerIn: parent
+        text: "󰚚" // nf-md-robot_outline
+        font.family: root.fontFamily
+        font.pixelSize: 14
+        color: !api.reachable ? root.dim : (api.attentionCount ? root.urgent : root.fg)
+
+        SequentialAnimation on opacity {
+          running: api.waitingCount > 0
+          loops: Animation.Infinite
+          alwaysRunToEnd: true
+          NumberAnimation { to: 0.35; duration: 900; easing.type: Easing.InOutSine }
+          NumberAnimation { to: 1.0; duration: 900; easing.type: Easing.InOutSine }
+        }
       }
     }
 
@@ -466,6 +508,16 @@ Item {
     property string feedback: ""
     property bool feedbackIsError: false
     property bool busy: false
+    property int scannerStep: 0
+    readonly property var scannerFrames: ["●··", "·●·", "··●", "·●·"]
+
+    Timer {
+      interval: 180
+      repeat: true
+      running: root.opened && wcard.workflow.status === "running" && !wcard.workflow.stale
+      onTriggered: wcard.scannerStep = (wcard.scannerStep + 1) % wcard.scannerFrames.length
+      onRunningChanged: if (!running) wcard.scannerStep = 0
+    }
 
     function report(ok, err, okText) {
       busy = false
@@ -508,7 +560,8 @@ Item {
           textFormat: Text.PlainText // agent text: never HTML
           id: glyph
           anchors.verticalCenter: parent.verticalCenter
-          text: root.statusGlyph(wcard.workflow.status)
+          text: wcard.workflow.status === "running"
+            ? wcard.scannerFrames[wcard.scannerStep] : root.statusGlyph(wcard.workflow.status)
           color: root.statusColor(wcard.workflow)
           font.family: root.fontFamily
           font.pixelSize: 13

@@ -2,10 +2,11 @@
 
 A bar icon that counts the agent workflows that need you (waiting on an
 answer, stuck or failed; in the theme's urgent color, pulsing while one is
-waiting on an answer), and a panel listing every workflow, most urgent first,
+waiting on an answer, with an orbiting spinner while agents are running), and
+a panel listing every workflow, most urgent first,
 where you can answer questions and approve permissions with one click, or send
-a finished or stuck agent a follow-up. A desktop notification fires when an
-agent starts needing you.
+a finished or stuck agent a follow-up. Running cards show a three-dot Larson
+scanner. A desktop notification fires when an agent starts needing you.
 
 It is a client of the mission-control daemon's HTTP API, so the daemon must be
 running (`mission-control serve -discover`). The daemon's TCP port requires a

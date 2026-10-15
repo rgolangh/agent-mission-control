@@ -5,6 +5,7 @@ A top-bar indicator for GNOME Shell 45 and later:
   an answer, stuck or failed), in red when any do.
 - **Menu:** one entry per workflow, most urgent first. Answer a question with
   one click, type a reply or follow-up, or jump to the agent's terminal window.
+  Running workflows show a three-dot Larson scanner in their cards.
 - **Notifications:** a desktop notification when an agent starts needing you.
 
 It is a thin client of the mission-control daemon. It reads the daemon's

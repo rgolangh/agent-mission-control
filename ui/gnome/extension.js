@@ -7,6 +7,7 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -31,6 +32,10 @@ class Indicator extends PanelMenu.Button {
         this._loaded = false;
         this._signatures = null;
         this._inFlight = false;
+        this._dotTimer = 0;
+        this._runningDots = [];
+        this._dotFrame = 0;
+        this._dotFrames = ['●··', '·●·', '··●', '·●·'];
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: 'utilities-terminal-symbolic', style_class: 'system-status-icon'});
@@ -43,7 +48,8 @@ class Indicator extends PanelMenu.Button {
             if (open) {
                 this._rebuild();
                 this._refresh();
-            }
+            } else
+                this._stopCardDots();
         });
 
         this._rebuild();
@@ -107,24 +113,44 @@ class Indicator extends PanelMenu.Button {
     }
 
     _rebuild() {
+        this._stopCardDots();
         this.menu.removeAll();
+        this.menu.box.add_style_class_name('mission-control-menu');
 
-        const header = new PopupMenu.PopupMenuItem('', {reactive: false});
-        header.label.text = !this._loaded ? 'connecting…'
-            : this._reachable ? model.summary(this._workflows) : this._error;
+        const header = new PopupMenu.PopupBaseMenuItem({
+            reactive: false,
+            can_focus: false,
+            style_class: 'mission-control-header',
+        });
+        const heading = new St.BoxLayout({vertical: true, x_expand: true});
+        heading.add_child(new St.Label({
+            text: 'Mission control',
+            style_class: 'mission-control-header-title',
+        }));
+        heading.add_child(new St.Label({
+            text: !this._loaded ? 'connecting…'
+                : this._reachable ? model.summary(this._workflows) : this._error,
+            style_class: `mission-control-header-summary${this._reachable ? '' : ' mission-control-dim'}`,
+        }));
+        header.add_child(heading);
         this.menu.addMenuItem(header);
-        this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
         if (this._loaded && !this._reachable) {
-            this._infoItem(this.menu, 'Start it with: mission-control install (or systemctl --user start mission-control)');
+            this._infoItem(this.menu, `Start the daemon: mission-control install (or systemctl --user start mission-control)\nLooking for it at http://127.0.0.1:4200`);
             return;
         }
         if (this._reachable && !this._workflows.length) {
             this._infoItem(this.menu, 'No workflows yet: start an opencode or claude session.');
             return;
         }
-        for (const w of this._workflows)
-            this.menu.addMenuItem(this._workflowItem(w));
+        for (const w of this._workflows) {
+            try {
+                this.menu.addMenuItem(this._workflowItem(w));
+            } catch (e) {
+                logError(e, `mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
+                this._infoItem(this.menu, `Couldn't display ${model.clean(w.title || w.source_id, 80)}. See the shell log for details.`);
+            }
+        }
     }
 
     _infoItem(menu, text) {
@@ -136,90 +162,242 @@ class Indicator extends PanelMenu.Button {
     }
 
     _workflowItem(w) {
-        const sub = new PopupMenu.PopupSubMenuMenuItem('', true);
-        sub.label.text = `${model.clean(w.title || w.source_id, 60)}`;
-        sub.icon.icon_name = {
-            needs_input: 'dialog-question-symbolic',
-            stuck: 'media-playback-pause-symbolic',
-            failed: 'dialog-error-symbolic',
-            running: 'content-loading-symbolic',
-            done: 'object-select-symbolic',
-        }[w.status] || 'dialog-information-symbolic';
-        if (model.needsYou(w))
-            sub.add_style_class_name('mission-control-attention');
-        if (w.stale)
-            sub.opacity = 150;
+        const card = new PopupMenu.PopupBaseMenuItem({
+            reactive: false,
+            can_focus: false,
+            style_class: 'mission-control-card',
+        });
+        const content = new St.BoxLayout({
+            vertical: true,
+            x_expand: true,
+            style_class: 'mission-control-card-content',
+        });
+        card.add_child(content);
 
-        const where = [model.tilde(w.location, HOME), `${model.statusLabel(w)} · ${model.age(w.updated_at)}`].filter(Boolean);
-        this._infoItem(sub.menu, where.join('   '));
+        const heading = new St.BoxLayout({
+            x_expand: true,
+            style_class: 'mission-control-card-heading',
+        });
+        const statusClass = `mission-control-status mission-control-status-${this._statusClass(w.status)}`;
+        if (w.status === 'running') {
+            const dots = new St.Label({
+                text: this._dotFrames[0],
+                y_align: Clutter.ActorAlign.CENTER,
+                style_class: `${statusClass} mission-control-running-dots`,
+            });
+            heading.add_child(dots);
+            if (this.menu.isOpen && !w.stale)
+                this._animateCardDots(dots);
+        } else {
+            const statusIcon = new St.Icon({
+                icon_name: {
+                    needs_input: 'dialog-question-symbolic',
+                    stuck: 'media-playback-pause-symbolic',
+                    failed: 'dialog-error-symbolic',
+                    done: 'object-select-symbolic',
+                }[w.status] || 'dialog-information-symbolic',
+                style_class: statusClass,
+            });
+            heading.add_child(statusIcon);
+        }
+
+        const title = new St.Label({
+            text: model.clean(w.title || w.source_id, 80),
+            x_expand: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'mission-control-card-title',
+        });
+        heading.add_child(title);
+
+        const status = new St.Label({
+            text: `${model.statusLabel(w)} · ${model.age(w.updated_at)}`,
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: `mission-control-card-status mission-control-status-${this._statusClass(w.status)}`,
+        });
+        heading.add_child(status);
+
+        if (w.pids && w.pids.length && !w.stale) {
+            const focus = new St.Button({
+                can_focus: true,
+                style_class: 'mission-control-terminal',
+                child: new St.Icon({icon_name: 'utilities-terminal-symbolic'}),
+            });
+            focus.connect('clicked', () => {
+                if (this._focus(w.pids))
+                    this.menu.close();
+            });
+            heading.add_child(focus);
+        }
+        content.add_child(heading);
+
+        const location = model.tilde(w.location, HOME);
+        if (location) {
+            const label = new St.Label({
+                text: model.clean(location, 240),
+                x_expand: true,
+                style_class: 'mission-control-card-location',
+            });
+            label.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
+            content.add_child(label);
+        }
+
+        if (model.needsYou(w))
+            card.add_style_class_name('mission-control-card-attention');
+        if (w.stale)
+            card.opacity = 150;
 
         const {ask, question, several} = model.firstQuestion(w);
         const canInput = model.canInput(w);
         if (question) {
-            this._infoItem(sub.menu, (question.header ? `${question.header}: ` : '') + question.question);
-            if (canInput && question.multiple)
-                this._multiSelect(sub.menu, w, ask.id, question.options || []);
-            else if (canInput) {
-                for (const opt of question.options || []) {
-                    const item = new PopupMenu.PopupMenuItem('');
-                    item.label.text = `→ ${model.clean(opt, 80)}`;
-                    item.connect('activate', () => this._answer(w, ask.id, opt));
-                    sub.menu.addMenuItem(item);
-                }
-            }
-        } else if (several) {
-            // Neither the menu nor the CLI can answer a multi-question ask.
-            this._infoItem(sub.menu, ask.questions.map(q => `• ${q.question}`).join('\n'));
+            this._cardLabel(content, (question.header ? `${question.header}: ` : '') + question.question, 'mission-control-card-question');
+            const options = question.options || [];
+            if (canInput && options.length)
+                this._choiceButtons(content, w, ask.id, options, question.multiple, ask.kind === 'permission');
+            else if (!canInput && options.length)
+                this._cardLabel(content, `Options: ${options.map(opt => model.clean(opt, 80)).join(' · ')}`, 'mission-control-card-secondary');
         } else if (w.stale) {
-            this._infoItem(sub.menu, w.stale_reason || 'source unreachable');
+            this._cardLabel(content, w.stale_reason || 'source unreachable', 'mission-control-card-message');
+        } else if (several) {
+            const questions = (ask.questions || []).map(q => `• ${model.clean(q.question, 300)}`).join('\n');
+            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
         } else if (w.message) {
-            this._infoItem(sub.menu, w.message);
+            this._cardLabel(content, w.message, 'mission-control-card-message');
         }
 
         if (canInput && question && question.free_text)
-            sub.menu.addMenuItem(this._entryItem('type an answer, Enter', text => this._answer(w, ask.id, text)));
-        else if (model.canFollowUp(w))
-            sub.menu.addMenuItem(this._entryItem('follow up / tell it how to continue, Enter', text => this._send(w, text)));
-
-        if ((!canInput || several) && !w.stale && (ask || w.status === 'needs_input'))
-            this._infoItem(sub.menu, 'Answer in its terminal.');
-
-        if (w.pids && w.pids.length && !w.stale) {
-            const focus = new PopupMenu.PopupMenuItem('Focus terminal');
-            focus.connect('activate', () => this._focus(w.pids));
-            sub.menu.addMenuItem(focus);
+            content.add_child(this._entry('or type an answer, Enter to send', text => this._answer(w, ask.id, text)));
+        else if (model.canFollowUp(w)) {
+            const hint = w.status === 'done' ? 'follow up…'
+                : w.status === 'needs_input' ? 'reply…' : 'tell it how to continue…';
+            content.add_child(this._entry(hint, text => this._send(w, text)));
         }
-        return sub;
+
+        if (!question && ask && !several && !w.stale) {
+            const questions = (ask.questions || []).map(q => `• ${model.clean(q.question, 300)}`).join('\n');
+            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
+        } else if ((!canInput || several) && !w.stale && (ask || w.status === 'needs_input') && !several) {
+            this._cardLabel(content, `Answer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
+        }
+
+        return card;
     }
 
-    // A question that allows several options: each option toggles a check
-    // mark (without closing the menu) and "Send selected" answers with all
-    // the picks at once.
-    _multiSelect(menu, w, askId, options) {
+    _animateCardDots(dots) {
+        this._runningDots.push(dots);
+        if (this._dotTimer)
+            return;
+
+        this._dotTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 180, () => {
+            if (!this.menu.isOpen || !this._runningDots.length) {
+                this._dotTimer = 0;
+                for (const label of this._runningDots)
+                    label.text = this._dotFrames[0];
+                this._runningDots = [];
+                this._dotFrame = 0;
+                return GLib.SOURCE_REMOVE;
+            }
+            this._dotFrame = (this._dotFrame + 1) % this._dotFrames.length;
+            for (const label of this._runningDots)
+                label.text = this._dotFrames[this._dotFrame];
+            return GLib.SOURCE_CONTINUE;
+        });
+    }
+
+    _stopCardDots() {
+        if (this._dotTimer) {
+            GLib.Source.remove(this._dotTimer);
+            this._dotTimer = 0;
+        }
+        for (const label of this._runningDots)
+            label.text = this._dotFrames[0];
+        this._runningDots = [];
+        this._dotFrame = 0;
+    }
+
+    _statusClass(status) {
+        return String(status || 'unknown').replaceAll('_', '-');
+    }
+
+    _cardLabel(parent, text, styleClass) {
+        const label = new St.Label({
+            text: model.clean(text, 1000),
+            x_expand: true,
+            style_class: styleClass,
+        });
+        label.clutter_text.line_wrap = true;
+        parent.add_child(label);
+        return label;
+    }
+
+    _button(label, styleClass, onClick) {
+        const button = new St.Button({
+            can_focus: true,
+            style_class: styleClass,
+            child: new St.Label({text: label}),
+        });
+        button.connect('clicked', onClick);
+        return button;
+    }
+
+    _choiceButtons(parent, w, askId, options, multiple, permission) {
+        const row = new St.BoxLayout({style_class: 'mission-control-choices'});
+        parent.add_child(row);
+        const cleanOptions = options.map(opt => model.clean(opt, 80));
+        if (!multiple) {
+            for (let i = 0; i < options.length; i++) {
+                const opt = options[i];
+                const button = this._button(cleanOptions[i],
+                    `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}`,
+                    () => {
+                        this._answer(w, askId, opt);
+                        this.menu.close();
+                    });
+                row.add_child(button);
+            }
+            return;
+        }
+
         let picked = [];
-        const send = new PopupMenu.PopupMenuItem('Send selected');
-        send.setSensitive(false);
-        send.connect('activate', () => this._answer(w, askId, picked));
-
-        for (const opt of options) {
-            const item = new PopupMenu.PopupMenuItem('');
-            item.label.text = model.clean(opt, 80);
-            item.setOrnament(PopupMenu.Ornament.NONE);
-            // Shadow activate on this instance: the default emits 'activate',
-            // which closes the whole menu after one pick.
-            item.activate = () => {
+        const send = this._button('Send selected', 'mission-control-choice mission-control-send', () => {
+            this._answer(w, askId, picked);
+            this.menu.close();
+        });
+        send.reactive = false;
+        send.can_focus = false;
+        send.opacity = 128;
+        for (let i = 0; i < options.length; i++) {
+            const opt = options[i];
+            const label = new St.Label({text: cleanOptions[i]});
+            const button = new St.Button({
+                can_focus: true,
+                style_class: `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}`,
+                child: label,
+            });
+            button.connect('clicked', () => {
                 picked = model.togglePick(picked, opt, options);
-                item.setOrnament(picked.includes(opt) ? PopupMenu.Ornament.CHECK : PopupMenu.Ornament.NONE);
-                send.setSensitive(picked.length > 0);
-            };
-            menu.addMenuItem(item);
+                const selected = picked.includes(opt);
+                label.text = `${selected ? '✓ ' : ''}${cleanOptions[i]}`;
+                if (selected)
+                    button.add_style_class_name('mission-control-choice-selected');
+                else
+                    button.remove_style_class_name('mission-control-choice-selected');
+                const canSend = picked.length > 0;
+                send.reactive = canSend;
+                send.can_focus = canSend;
+                send.opacity = canSend ? 255 : 128;
+            });
+            row.add_child(button);
         }
-        menu.addMenuItem(send);
+        row.add_child(send);
     }
 
-    _entryItem(hint, onSubmit) {
-        const item = new PopupMenu.PopupBaseMenuItem({reactive: false, can_focus: false});
-        const entry = new St.Entry({hint_text: hint, can_focus: true, x_expand: true, style_class: 'mission-control-entry'});
+    _entry(hint, onSubmit) {
+        const entry = new St.Entry({
+            hint_text: hint,
+            can_focus: true,
+            x_expand: true,
+            style_class: 'mission-control-entry',
+        });
         entry.clutter_text.connect('activate', () => {
             const text = entry.get_text().trim();
             if (text) {
@@ -228,8 +406,7 @@ class Indicator extends PanelMenu.Button {
                 this.menu.close();
             }
         });
-        item.add_child(entry);
-        return item;
+        return entry;
     }
 
     async _answer(w, askId, choice) {
@@ -261,10 +438,11 @@ class Indicator extends PanelMenu.Button {
             const win = windows.find(mw => mw.get_pid() === pid);
             if (win) {
                 Main.activateWindow(win);
-                return;
+                return true;
             }
         }
         Main.notify('Mission control', 'No window found for that agent.');
+        return false;
     }
 
     destroy() {
@@ -272,6 +450,7 @@ class Indicator extends PanelMenu.Button {
             GLib.Source.remove(this._timer);
             this._timer = 0;
         }
+        this._stopCardDots();
         this._cancellable.cancel();
         this._client.destroy();
         super.destroy();
