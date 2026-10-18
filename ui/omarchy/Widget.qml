@@ -125,7 +125,7 @@ Item {
   function statusGlyph(s) {
     switch (s) {
     case "needs_input": return "" // question-circle
-    case "running": return "●··"   // first frame of the Larson scanner
+    case "running": return "█▓▒░····" // first frame of the Larson scanner
     case "stuck": return ""       // pause-circle
     case "failed": return ""      // times-circle
     case "done": return ""        // check-circle
@@ -509,16 +509,28 @@ Item {
     property bool feedbackIsError: false
     property bool busy: false
     property int scannerStep: 0
-    readonly property var scannerFrames: ["●··", "·●·", "··●", "·●·"]
+    readonly property int scannerCells: 8
+    readonly property int scannerCycle: scannerCells * 2 - 2
 
     Timer {
-      interval: 180
+      interval: 80
       repeat: true
       running: root.opened && wcard.workflow.status === "running" && !wcard.workflow.stale
-      onTriggered: wcard.scannerStep = (wcard.scannerStep + 1) % wcard.scannerFrames.length
+      onTriggered: wcard.scannerStep = (wcard.scannerStep + 1) % wcard.scannerCycle
       onRunningChanged: if (!running) wcard.scannerStep = 0
     }
 
+    function scannerText() {
+      var forward = scannerStep < scannerCells
+      var position = forward ? scannerStep : scannerCycle - scannerStep
+      var shades = ["█", "▓", "▒", "░"]
+      var text = ""
+      for (var i = 0; i < scannerCells; i++) {
+        var distance = forward ? position - i : i - position
+        text += distance >= 0 && distance < shades.length ? shades[distance] : "·"
+      }
+      return text
+    }
     function report(ok, err, okText) {
       busy = false
       feedbackIsError = !ok
@@ -561,7 +573,7 @@ Item {
           id: glyph
           anchors.verticalCenter: parent.verticalCenter
           text: wcard.workflow.status === "running"
-            ? wcard.scannerFrames[wcard.scannerStep] : root.statusGlyph(wcard.workflow.status)
+            ? wcard.scannerText() : root.statusGlyph(wcard.workflow.status)
           color: root.statusColor(wcard.workflow)
           font.family: root.fontFamily
           font.pixelSize: 13

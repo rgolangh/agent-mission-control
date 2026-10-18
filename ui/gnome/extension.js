@@ -32,10 +32,8 @@ class Indicator extends PanelMenu.Button {
         this._loaded = false;
         this._signatures = null;
         this._inFlight = false;
-        this._dotTimer = 0;
-        this._runningDots = [];
-        this._dotFrame = 0;
-        this._dotFrames = ['●··', '·●·', '··●', '·●·'];
+        this._scannerTimer = 0;
+        this._scanners = [];
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: 'utilities-terminal-symbolic', style_class: 'system-status-icon'});
@@ -49,7 +47,7 @@ class Indicator extends PanelMenu.Button {
                 this._rebuild();
                 this._refresh();
             } else
-                this._stopCardDots();
+                this._stopCardScanners();
         });
 
         this._rebuild();
@@ -113,7 +111,7 @@ class Indicator extends PanelMenu.Button {
     }
 
     _rebuild() {
-        this._stopCardDots();
+        this._stopCardScanners();
         this.menu.removeAll();
         this.menu.box.add_style_class_name('mission-control-menu');
 
@@ -180,14 +178,7 @@ class Indicator extends PanelMenu.Button {
         });
         const statusClass = `mission-control-status mission-control-status-${this._statusClass(w.status)}`;
         if (w.status === 'running') {
-            const dots = new St.Label({
-                text: this._dotFrames[0],
-                y_align: Clutter.ActorAlign.CENTER,
-                style_class: `${statusClass} mission-control-running-dots`,
-            });
-            heading.add_child(dots);
-            if (this.menu.isOpen && !w.stale)
-                this._animateCardDots(dots);
+            heading.add_child(this._cardScanner(w.stale));
         } else {
             const statusIcon = new St.Icon({
                 icon_name: {
@@ -282,36 +273,88 @@ class Indicator extends PanelMenu.Button {
         return card;
     }
 
-    _animateCardDots(dots) {
-        this._runningDots.push(dots);
-        if (this._dotTimer)
+    _cardScanner(stale) {
+        const scanner = {
+            frame: 0,
+            labels: [],
+            cells: 8,
+            stale,
+        };
+        const row = new St.BoxLayout({
+            y_align: Clutter.ActorAlign.CENTER,
+            style_class: 'mission-control-card-scanner',
+        });
+        for (let i = 0; i < scanner.cells; i++) {
+            const label = new St.Label({
+                text: '·',
+                y_align: Clutter.ActorAlign.CENTER,
+                style_class: 'mission-control-scan-cell',
+            });
+            scanner.labels.push(label);
+            row.add_child(label);
+        }
+        this._renderCardScanner(scanner);
+        if (!stale && this.menu.isOpen)
+            this._startCardScanner(scanner);
+        return row;
+    }
+
+    _renderCardScanner(scanner) {
+        const cycle = scanner.cells * 2 - 2;
+        const forward = scanner.frame < scanner.cells;
+        const position = forward ? scanner.frame : cycle - scanner.frame;
+        const shades = ['█', '▓', '▒', '░'];
+        const classes = [
+            'mission-control-scan-idle',
+            'mission-control-scan-head',
+            'mission-control-scan-tail-1',
+            'mission-control-scan-tail-2',
+            'mission-control-scan-tail-3',
+        ];
+
+        scanner.labels.forEach((label, index) => {
+            const distance = forward ? position - index : index - position;
+            const trail = distance >= 0 && distance < shades.length ? distance : -1;
+            label.text = trail >= 0 ? shades[trail] : '·';
+            for (const styleClass of classes)
+                label.remove_style_class_name(styleClass);
+            label.add_style_class_name(trail >= 0 ? classes[trail + 1] : classes[0]);
+        });
+    }
+
+    _startCardScanner(scanner) {
+        this._scanners.push(scanner);
+        if (this._scannerTimer)
             return;
 
-        this._dotTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 180, () => {
-            if (!this.menu.isOpen || !this._runningDots.length) {
-                this._dotTimer = 0;
-                for (const label of this._runningDots)
-                    label.text = this._dotFrames[0];
-                this._runningDots = [];
-                this._dotFrame = 0;
+        this._scannerTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 80, () => {
+            if (!this.menu.isOpen || !this._scanners.length) {
+                this._scannerTimer = 0;
+                for (const active of this._scanners) {
+                    active.frame = 0;
+                    this._renderCardScanner(active);
+                }
+                this._scanners = [];
                 return GLib.SOURCE_REMOVE;
             }
-            this._dotFrame = (this._dotFrame + 1) % this._dotFrames.length;
-            for (const label of this._runningDots)
-                label.text = this._dotFrames[this._dotFrame];
+            for (const active of this._scanners) {
+                active.frame = (active.frame + 1) % (active.cells * 2 - 2);
+                this._renderCardScanner(active);
+            }
             return GLib.SOURCE_CONTINUE;
         });
     }
 
-    _stopCardDots() {
-        if (this._dotTimer) {
-            GLib.Source.remove(this._dotTimer);
-            this._dotTimer = 0;
+    _stopCardScanners() {
+        if (this._scannerTimer) {
+            GLib.Source.remove(this._scannerTimer);
+            this._scannerTimer = 0;
         }
-        for (const label of this._runningDots)
-            label.text = this._dotFrames[0];
-        this._runningDots = [];
-        this._dotFrame = 0;
+        for (const scanner of this._scanners) {
+            scanner.frame = 0;
+            this._renderCardScanner(scanner);
+        }
+        this._scanners = [];
     }
 
     _statusClass(status) {
@@ -450,7 +493,7 @@ class Indicator extends PanelMenu.Button {
             GLib.Source.remove(this._timer);
             this._timer = 0;
         }
-        this._stopCardDots();
+        this._stopCardScanners();
         this._cancellable.cancel();
         this._client.destroy();
         super.destroy();

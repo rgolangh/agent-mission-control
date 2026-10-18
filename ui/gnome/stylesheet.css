@@ -78,10 +78,34 @@
   color: #d8dee9;
 }
 
-.mission-control-running-dots {
-  min-width: 2.5em;
+.mission-control-card-scanner {
+  spacing: 1px;
+}
+
+.mission-control-scan-cell {
   font-family: monospace;
+  font-size: 0.82em;
   font-weight: bold;
+}
+
+.mission-control-scan-idle {
+  color: rgba(137, 180, 250, 0.2);
+}
+
+.mission-control-scan-head {
+  color: #89b4fa;
+}
+
+.mission-control-scan-tail-1 {
+  color: rgba(137, 180, 250, 0.72);
+}
+
+.mission-control-scan-tail-2 {
+  color: rgba(137, 180, 250, 0.48);
+}
+
+.mission-control-scan-tail-3 {
+  color: rgba(137, 180, 250, 0.3);
 }
 
 .mission-control-status-done {
