@@ -34,6 +34,34 @@ Mouse: left click toggles the panel, right click refreshes. Esc closes it.
 IPC: `omarchy-shell mission-control open|close|toggle`, for a keybind or a
 script (the README demo uses it).
 
+The widget registers a Quickshell global shortcut. To bind it to
+`Super+Alt+M` (Omarchy uses `Super+Shift+M` for Music), opt in during
+installation:
+
+```bash
+mission-control install --hyprland-keybind --enable
+```
+
+The installer adds a marked binding to the existing
+`~/.config/hypr/bindings.lua` (Omarchy Lua config), `bindings.conf`, or
+`hyprland.conf`, depending on which it finds. It preserves the rest of the file
+and removes only its unchanged marked block on uninstall. Edited blocks are
+kept unless `--force` is passed. Symlinked config files are left alone. Without
+the option, no Hyprland config is changed.
+`--enable` also enables the Omarchy plugin, so the shortcut is ready to use.
+
+The equivalent manual bindings are:
+
+```lua
+-- Omarchy Lua config
+o.bind("SUPER + ALT + M", "Mission Control", hl.dsp.global("org.rgolangh.agent-mission-control:toggle-panel"))
+```
+
+```ini
+# Plain Hyprland config
+bind = SUPER ALT, M, global, org.rgolangh.agent-mission-control:toggle-panel
+```
+
 ## Constraints that shaped it
 
 - **Self-contained.** omarchy-shell loads third-party entry points by

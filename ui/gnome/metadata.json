@@ -1,5 +1,6 @@
 {
   "uuid": "mission-control@rgolangh.github.io",
+  "settings-schema": "org.gnome.shell.extensions.mission-control",
   "name": "Mission control",
   "description": "See which coding-agent sessions (OpenCode, Claude Code) are working, waiting on you, done or stuck, and answer them from the top bar. Needs the mission-control daemon.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],

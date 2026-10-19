@@ -4,12 +4,14 @@
 // widget, GNOME Shell extension). Everything comes from the files embedded in
 // the binary, so the integrations always match the installed version.
 //
-// Rules: install only adds files and never edits an existing configuration
-// file. A file is overwritten only if mission-control wrote it and nobody has
-// changed it since (tracked in a manifest with SHA-256 sums); a symlink is
-// left alone (a development setup linking into a checkout). Commands that
-// would change another tool's settings, such as enabling a shell extension,
-// are printed, not run, unless Options.Enable is set.
+// Rules: install only adds files by default. With Options.HyprlandKeybind it
+// may append one marked binding to an existing Hyprland config; uninstall
+// removes only that unchanged block. A file is overwritten only if
+// mission-control wrote it and nobody has changed it since (tracked in a
+// manifest with SHA-256 sums); a symlink is left alone (a development setup
+// linking into a checkout). Commands that change another tool's settings,
+// such as enabling a shell extension, are printed, not run, unless
+// Options.Enable is set.
 package install
 
 import (
@@ -39,10 +41,11 @@ type Env struct {
 
 // Options select what to do.
 type Options struct {
-	Only   map[string]bool // component names; empty = everything detected
-	DryRun bool            // print the plan, change nothing
-	Force  bool            // overwrite files that are not ours or were modified
-	Enable bool            // also run the "enable" commands (shell extension, bar placement)
+	HyprlandKeybind bool            // add the opt-in Omarchy/Hyprland global shortcut
+	Only            map[string]bool // component names; empty = everything detected
+	DryRun          bool            // print the plan, change nothing
+	Force           bool            // overwrite files that are not ours or were modified
+	Enable          bool            // also run the "enable" commands (shell extension, bar placement)
 }
 
 // GNOMEUUID is the GNOME Shell extension's UUID (its directory name).
@@ -195,19 +198,23 @@ func assetFiles(assets fs.FS, srcDir, dstDir string, names ...string) ([]File, e
 	return out, err
 }
 
-// Manifest records what install wrote, so reinstall and uninstall only touch
-// files that are ours and unchanged.
+// Manifest records files install wrote and marked blocks it appended, so
+// reinstall and uninstall only touch content mission-control owns.
 type Manifest struct {
-	Version string            `json:"version"`
-	Files   map[string]string `json:"files"` // path -> sha256 of what we wrote
+	Appends map[string]ManagedAppend `json:"appends,omitempty"`
+	Version string                   `json:"version"`
+	Files   map[string]string        `json:"files"` // path -> sha256 of what we wrote
 }
 
 func (e Env) LoadManifest() Manifest {
-	m := Manifest{Files: map[string]string{}}
+	m := Manifest{Files: map[string]string{}, Appends: map[string]ManagedAppend{}}
 	if b, err := os.ReadFile(e.ManifestPath()); err == nil {
 		_ = json.Unmarshal(b, &m)
 		if m.Files == nil {
 			m.Files = map[string]string{}
+		}
+		if m.Appends == nil {
+			m.Appends = map[string]ManagedAppend{}
 		}
 	}
 	return m
@@ -300,6 +307,16 @@ func Install(e Env, version string, opt Options) error {
 		return err
 	}
 	m := e.LoadManifest()
+	var hyprlandBinding *hyprlandBindingPlan
+	if opt.HyprlandKeybind {
+		if !selectedComponent(comps, opt, "omarchy") {
+			return fmt.Errorf("--hyprland-keybind requires the omarchy component; select it with --only omarchy")
+		}
+		hyprlandBinding, err = planHyprlandBinding(e, m, opt.Force)
+		if err != nil {
+			return err
+		}
+	}
 	var blocked []string
 	var chosen []Component
 	for _, c := range comps {
@@ -325,6 +342,13 @@ func Install(e Env, version string, opt Options) error {
 			}
 		}
 	}
+	if hyprlandBinding != nil {
+		state := "up to date"
+		if hyprlandBinding.changed {
+			state = "update"
+		}
+		fmt.Fprintf(e.Out, "+ %-12s (%s)\n    %-22s %s\n", "hyprland-keybind", "Super+Alt+M toggles Mission Control", state, tilde(e, hyprlandBinding.path))
+	}
 	if len(blocked) > 0 {
 		return fmt.Errorf("refusing to overwrite %d file(s) not written by mission-control or changed since (use --force): %s",
 			len(blocked), strings.Join(blocked, ", "))
@@ -332,6 +356,19 @@ func Install(e Env, version string, opt Options) error {
 	if opt.DryRun {
 		fmt.Fprintln(e.Out, "dry run: nothing changed")
 		return nil
+	}
+
+	if hyprlandBinding != nil && hyprlandBinding.changed {
+		current, err := os.ReadFile(hyprlandBinding.path)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(current, hyprlandBinding.before) {
+			return fmt.Errorf("Hyprland config changed during install; retry so the shortcut can be added safely")
+		}
+		if underSymlink(e.Home, hyprlandBinding.path) || isSymlink(hyprlandBinding.path) {
+			return fmt.Errorf("refusing to write through symlinked Hyprland config %s", tilde(e, hyprlandBinding.path))
+		}
 	}
 
 	for _, c := range chosen {
@@ -347,6 +384,19 @@ func Install(e Env, version string, opt Options) error {
 				return err
 			}
 			m.Files[f.Path] = sum(f.Data)
+		}
+	}
+	if hyprlandBinding != nil && hyprlandBinding.changed {
+		if err := writeHyprlandConfig(hyprlandBinding.path, hyprlandBinding.after, hyprlandBinding.mode); err != nil {
+			return err
+		}
+		if hyprlandBinding.owned {
+			m.Appends[hyprlandBinding.path] = hyprlandBinding.append
+		}
+		for i := range chosen {
+			if chosen[i].Name == "omarchy" {
+				chosen[i].Post = append(chosen[i].Post, []string{"hyprctl", "reload"})
+			}
 		}
 	}
 	m.Version = version
@@ -376,14 +426,26 @@ func Install(e Env, version string, opt Options) error {
 			fmt.Fprintf(e.Out, "  note: %s\n", n)
 		}
 	}
+	if hyprlandBinding != nil && hyprlandBinding.changed {
+		fmt.Fprintln(e.Out, "  note: added the marked Super+Alt+M binding; uninstall removes it and preserves the rest of your Hyprland config")
+	}
 	return nil
 }
 
-// Uninstall removes what install wrote and is unchanged, and stops the
-// service. Modified files are kept unless Force.
+func selectedComponent(comps []Component, opt Options, name string) bool {
+	for _, c := range comps {
+		if c.Name == name {
+			return selected(c, opt) && len(c.Files) > 0
+		}
+	}
+	return false
+}
+
+// Uninstall removes unchanged files and its marked Hyprland binding block, and
+// stops the service. Modified files/blocks are kept unless Force.
 func Uninstall(e Env, opt Options) error {
 	m := e.LoadManifest()
-	if len(m.Files) == 0 {
+	if len(m.Files) == 0 && len(m.Appends) == 0 {
 		fmt.Fprintln(e.Out, "nothing installed by mission-control install")
 		return nil
 	}
@@ -399,6 +461,37 @@ func Uninstall(e Env, opt Options) error {
 	}
 	sort.Strings(paths)
 	dirs := map[string]bool{}
+	changedHyprland := false
+	for p, managed := range m.Appends {
+		if underSymlink(e.Home, p) || isSymlink(p) {
+			fmt.Fprintf(e.Out, "  kept       %s (symlink: left alone)\n", tilde(e, p))
+			delete(m.Appends, p)
+			continue
+		}
+		cur, err := os.ReadFile(p)
+		if err != nil {
+			fmt.Fprintf(e.Out, "  gone       %s\n", tilde(e, p))
+			delete(m.Appends, p)
+			continue
+		}
+		next, removed := removeManagedAppend(cur, managed, opt.Force)
+		if !removed {
+			fmt.Fprintf(e.Out, "  kept       %s (managed keybinding was edited)\n", tilde(e, p))
+			continue
+		}
+		fmt.Fprintf(e.Out, "  update     %s (remove managed keybinding)\n", tilde(e, p))
+		if !opt.DryRun {
+			st, err := os.Stat(p)
+			if err != nil {
+				return err
+			}
+			if err := writeHyprlandConfig(p, next, st.Mode().Perm()); err != nil {
+				return err
+			}
+		}
+		delete(m.Appends, p)
+		changedHyprland = true
+	}
 	for _, p := range paths {
 		// Install never writes through a symlink, and uninstall must not
 		// delete through one: the path may now lead into a checkout.
@@ -429,8 +522,13 @@ func Uninstall(e Env, opt Options) error {
 		fmt.Fprintln(e.Out, "dry run: nothing changed")
 		return nil
 	}
+	if changedHyprland && e.Look != nil && e.Look("hyprctl") {
+		if err := e.Run("hyprctl", "reload"); err != nil {
+			fmt.Fprintf(e.Out, "  warning: hyprctl reload: %v\n", err)
+		}
+	}
 	removeEmptyDirs(e, dirs)
-	if len(m.Files) == 0 {
+	if len(m.Files) == 0 && len(m.Appends) == 0 {
 		_ = os.Remove(e.ManifestPath())
 		_ = os.Remove(filepath.Dir(e.ManifestPath()))
 	} else if err := e.saveManifest(m); err != nil {

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.mission-control" path="/org/gnome/shell/extensions/mission-control/">
+    <key name="toggle-menu" type="as">
+      <default>['&lt;Super&gt;&lt;Alt&gt;m']</default>
+      <summary>Shortcut to toggle the Mission Control menu</summary>
+      <description>Set to an empty list to disable the global shortcut.</description>
+    </key>
+  </schema>
+</schemalist>

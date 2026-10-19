@@ -54,6 +54,9 @@ chmod +x mission-control-linux-amd64
 mission-control doctor
 ```
 
+On Omarchy, `mission-control install --hyprland-keybind --enable` also adds the
+Quickshell-backed `Super+Alt+M` shortcut and enables the widget.
+
 Or from source: `CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/mission-control@latest`,
 then `mission-control install`.
 

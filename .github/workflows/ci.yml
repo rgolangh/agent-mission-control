@@ -20,6 +20,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Compile GNOME settings schema
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq gjs libglib2.0-bin
+          glib-compile-schemas --strict ui/gnome/schemas
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: vet
@@ -28,7 +32,7 @@ jobs:
         run: go test -race ./...
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/mission-control
-      - name: GNOME extension model tests (gjs)
+      - name: GNOME extension tests (gjs)
         run: |
-          sudo apt-get update -q && sudo apt-get install -yq gjs
           gjs -m ui/gnome/test/model.test.js
+          gjs -m ui/gnome/test/schema.test.js
