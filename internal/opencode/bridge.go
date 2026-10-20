@@ -7,7 +7,7 @@ import (
 	"github.com/rgolangh/agent-mission-control/internal/paths"
 )
 
-// BridgeCredential reads the token the mission-control bridge plugin wrote
+// BridgeCredential reads the token the agent-mission-control bridge plugin wrote
 // for OpenCode process pid, and the port it protects. The file is only
 // readable by this user (paths.ReadSecret refuses anything looser).
 func BridgeCredential(pid int) (port int, token string, err error) {

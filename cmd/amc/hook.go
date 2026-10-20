@@ -27,7 +27,7 @@ const hookTimeout = 400 * time.Millisecond
 // 0: a hook's output and exit status can steer the agent, and this one must
 // only ever observe.
 //
-//	mission-control hook [-addr ADDR] [-log FILE] claude-code
+//	amc hook [-addr ADDR] [-log FILE] claude-code
 func hook(args []string) error {
 	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)

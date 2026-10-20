@@ -1,6 +1,6 @@
 // Package claudecode is the Claude Code adapter. Claude Code has no API to
 // subscribe to, so it is push-based: hook commands (installed by the plugin
-// in integrations/claude-code) run `mission-control hook claude-code`, which
+// in integrations/claude-code) run `amc hook claude-code`, which
 // posts each hook payload to the daemon, and Adapter.Normalize maps it to a
 // SourceEvent. Turn evidence for the done/stuck rules comes from the Stop
 // hook's last_assistant_message plus the session's JSONL transcript.
@@ -38,7 +38,7 @@ const Name = "claude-code"
 const maxSessions = 1000
 
 // Hook is the subset of a Claude Code hook payload the adapter reads, plus
-// the fields `mission-control hook` adds (mc_*).
+// the fields `amc hook` adds (mc_*).
 type Hook struct {
 	SessionID      string `json:"session_id"`
 	TranscriptPath string `json:"transcript_path"`

@@ -15,14 +15,14 @@ import (
 // judgeCmd runs the done/stuck rules on a message or a transcript, so a
 // verdict can be reproduced, explained and turned into a test case.
 //
-//	mission-control judge [-all] [-only RULES] <transcript.jsonl | file | ->
+//	amc judge [-all] [-only RULES] <transcript.jsonl | file | ->
 func judgeCmd(args []string) error {
 	fs := flag.NewFlagSet("judge", flag.ExitOnError)
 	all := fs.Bool("all", false, "transcript: judge every turn, not just the last")
 	only := fs.String("only", "", "comma-separated rules or statuses to show (e.g. stuck,question)")
 	_ = fs.Parse(args)
 	if fs.NArg() != 1 {
-		return fmt.Errorf("usage: mission-control judge [-all] [-only RULES] <transcript.jsonl | text file | ->")
+		return fmt.Errorf("usage: amc judge [-all] [-only RULES] <transcript.jsonl | text file | ->")
 	}
 	src := fs.Arg(0)
 	keep := func(v daemon.Verdict) bool {

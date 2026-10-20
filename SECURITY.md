@@ -1,6 +1,6 @@
 # Security
 
-mission-control can **act** on your coding agents, not just watch them. It
+agent-mission-control can **act** on your coding agents, not just watch them. It
 answers their questions, approves their permission requests, and sends them
 prompts. An agent with an approved permission runs commands as you. So treat
 anything that can talk to the daemon as able to run code as your user, and
@@ -32,12 +32,12 @@ loopback network.
 
 | Channel | Used by | Protection |
 |---|---|---|
-| Unix socket `$XDG_RUNTIME_DIR/mission-control/api.sock` | CLI, hooks, MCP | Only your user can enter the directory (0700) or connect to the socket (0600); it can't be squatted by another user |
-| TCP `127.0.0.1:4200` | Desktop widget | Bearer token, regenerated on every daemon start, in `$XDG_RUNTIME_DIR/mission-control/token` (0600); `Host` must be loopback (DNS rebinding); POST must be JSON (cross-site requests) |
+| Unix socket `$XDG_RUNTIME_DIR/agent-mission-control/api.sock` | CLI, hooks, MCP | Only your user can enter the directory (0700) or connect to the socket (0600); it can't be squatted by another user |
+| TCP `127.0.0.1:4200` | Desktop widget | Bearer token, regenerated on every daemon start, in `$XDG_RUNTIME_DIR/agent-mission-control/token` (0600); `Host` must be loopback (DNS rebinding); POST must be JSON (cross-site requests) |
 | OpenCode bridge port (plugin, random port) | Daemon → plain `opencode` | Per-process token file (0600); `Host` must be loopback; any `Origin` header refused |
 
 **What leaves your agents.** The Claude Code hook strips each event down to
-what mission-control needs before sending it: no file contents, no command
+what agent-mission-control needs before sending it: no file contents, no command
 output, prompts cut to a title. Transcripts are read only from Claude Code's
 own `projects` directory.
 
@@ -48,7 +48,7 @@ labels it as untrusted. Permission approvals go through a separate
 `always`.
 
 **Observe-only where there is no safe input path.** Claude Code sessions can
-be watched but not driven from mission-control.
+be watched but not driven from agent-mission-control.
 
 ## Hardening advice
 

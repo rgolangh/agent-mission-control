@@ -27,7 +27,7 @@ jobs:
       - name: test
         run: go test -race ./...
       - name: build
-        run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/mission-control
+        run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/amc
       - name: GNOME extension model tests (gjs)
         run: |
           sudo apt-get update -q && sudo apt-get install -yq gjs

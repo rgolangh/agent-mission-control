@@ -1,4 +1,4 @@
-package missioncontrol
+package agentmissioncontrol
 
 import (
 	"io/fs"
@@ -7,7 +7,7 @@ import (
 
 func TestAssetsContainInstallables(t *testing.T) {
 	want := []string{
-		"integrations/opencode/mission-control-bridge.js",
+		"integrations/opencode/agent-mission-control-bridge.js",
 		"integrations/claude-code/.claude-plugin/plugin.json",
 		"integrations/claude-code/hooks/hooks.json",
 		"ui/omarchy/Widget.qml",

@@ -1,6 +1,6 @@
-// Mission control for GNOME Shell (45+): a panel indicator counting the
+// Agent Mission Control for GNOME Shell (45+): a panel indicator counting the
 // coding-agent workflows that need you, and a menu to answer them. A thin
-// client of the mission-control daemon (see client.js); all logic is in the
+// client of the agent-mission-control daemon (see client.js); all logic is in the
 // daemon and model.js. Agent text is untrusted: it only ever goes into plain
 // St.Labels (never markup), cleaned of control characters.
 import Clutter from 'gi://Clutter';
@@ -24,7 +24,7 @@ const HOME = GLib.get_home_dir();
 const Indicator = GObject.registerClass(
 class Indicator extends PanelMenu.Button {
     _init() {
-        super._init(0.0, 'Mission control');
+        super._init(0.0, 'Agent Mission Control');
         this._client = new Client();
         this._cancellable = new Gio.Cancellable();
         this._workflows = [];
@@ -39,7 +39,7 @@ class Indicator extends PanelMenu.Button {
 
         const box = new St.BoxLayout({style_class: 'panel-status-menu-box'});
         this._icon = new St.Icon({icon_name: 'utilities-terminal-symbolic', style_class: 'system-status-icon'});
-        this._count = new St.Label({text: '', y_align: Clutter.ActorAlign.CENTER, style_class: 'mission-control-count'});
+        this._count = new St.Label({text: '', y_align: Clutter.ActorAlign.CENTER, style_class: 'agent-mission-control-count'});
         box.add_child(this._icon);
         box.add_child(this._count);
         this.add_child(box);
@@ -68,7 +68,7 @@ class Indicator extends PanelMenu.Button {
             const r = await this._client.workflows(this._cancellable);
             this._loaded = true;
             this._reachable = r.status === 200;
-            this._error = r.status === 0 ? 'mission-control is not running'
+            this._error = r.status === 0 ? 'agent-mission-control is not running'
                 : r.status === 401 ? "not authorized: can't read the daemon's token file"
                     : r.status !== 200 ? `daemon returned ${r.status}` : '';
             if (this._reachable) {
@@ -84,7 +84,7 @@ class Indicator extends PanelMenu.Button {
                 this._rebuild();
         } catch (e) {
             if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
-                logError(e, 'mission-control');
+                logError(e, 'agent-mission-control');
         } finally {
             this._inFlight = false;
         }
@@ -97,9 +97,9 @@ class Indicator extends PanelMenu.Button {
         const attention = this._reachable && c.attention > 0;
         for (const actor of [this._icon, this._count]) {
             if (attention)
-                actor.add_style_class_name('mission-control-attention');
+                actor.add_style_class_name('agent-mission-control-attention');
             else
-                actor.remove_style_class_name('mission-control-attention');
+                actor.remove_style_class_name('agent-mission-control-attention');
         }
         this._icon.opacity = this._reachable ? 255 : 120;
     }
@@ -115,28 +115,28 @@ class Indicator extends PanelMenu.Button {
     _rebuild() {
         this._stopCardDots();
         this.menu.removeAll();
-        this.menu.box.add_style_class_name('mission-control-menu');
+        this.menu.box.add_style_class_name('agent-mission-control-menu');
 
         const header = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
             can_focus: false,
-            style_class: 'mission-control-header',
+            style_class: 'agent-mission-control-header',
         });
         const heading = new St.BoxLayout({vertical: true, x_expand: true});
         heading.add_child(new St.Label({
-            text: 'Mission control',
-            style_class: 'mission-control-header-title',
+            text: 'Agent Mission Control',
+            style_class: 'agent-mission-control-header-title',
         }));
         heading.add_child(new St.Label({
             text: !this._loaded ? 'connecting…'
                 : this._reachable ? model.summary(this._workflows) : this._error,
-            style_class: `mission-control-header-summary${this._reachable ? '' : ' mission-control-dim'}`,
+            style_class: `agent-mission-control-header-summary${this._reachable ? '' : ' agent-mission-control-dim'}`,
         }));
         header.add_child(heading);
         this.menu.addMenuItem(header);
 
         if (this._loaded && !this._reachable) {
-            this._infoItem(this.menu, `Start the daemon: mission-control install (or systemctl --user start mission-control)\nLooking for it at http://127.0.0.1:4200`);
+            this._infoItem(this.menu, `Start the daemon: amc install (or systemctl --user start agent-mission-control)\nLooking for it at http://127.0.0.1:4200`);
             return;
         }
         if (this._reachable && !this._workflows.length) {
@@ -147,7 +147,7 @@ class Indicator extends PanelMenu.Button {
             try {
                 this.menu.addMenuItem(this._workflowItem(w));
             } catch (e) {
-                logError(e, `mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
+                logError(e, `agent-mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
                 this._infoItem(this.menu, `Couldn't display ${model.clean(w.title || w.source_id, 80)}. See the shell log for details.`);
             }
         }
@@ -165,25 +165,25 @@ class Indicator extends PanelMenu.Button {
         const card = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
             can_focus: false,
-            style_class: 'mission-control-card',
+            style_class: 'agent-mission-control-card',
         });
         const content = new St.BoxLayout({
             vertical: true,
             x_expand: true,
-            style_class: 'mission-control-card-content',
+            style_class: 'agent-mission-control-card-content',
         });
         card.add_child(content);
 
         const heading = new St.BoxLayout({
             x_expand: true,
-            style_class: 'mission-control-card-heading',
+            style_class: 'agent-mission-control-card-heading',
         });
-        const statusClass = `mission-control-status mission-control-status-${this._statusClass(w.status)}`;
+        const statusClass = `agent-mission-control-status agent-mission-control-status-${this._statusClass(w.status)}`;
         if (w.status === 'running') {
             const dots = new St.Label({
                 text: this._dotFrames[0],
                 y_align: Clutter.ActorAlign.CENTER,
-                style_class: `${statusClass} mission-control-running-dots`,
+                style_class: `${statusClass} agent-mission-control-running-dots`,
             });
             heading.add_child(dots);
             if (this.menu.isOpen && !w.stale)
@@ -205,21 +205,21 @@ class Indicator extends PanelMenu.Button {
             text: model.clean(w.title || w.source_id, 80),
             x_expand: true,
             y_align: Clutter.ActorAlign.CENTER,
-            style_class: 'mission-control-card-title',
+            style_class: 'agent-mission-control-card-title',
         });
         heading.add_child(title);
 
         const status = new St.Label({
             text: `${model.statusLabel(w)} · ${model.age(w.updated_at)}`,
             y_align: Clutter.ActorAlign.CENTER,
-            style_class: `mission-control-card-status mission-control-status-${this._statusClass(w.status)}`,
+            style_class: `agent-mission-control-card-status agent-mission-control-status-${this._statusClass(w.status)}`,
         });
         heading.add_child(status);
 
         if (w.pids && w.pids.length && !w.stale) {
             const focus = new St.Button({
                 can_focus: true,
-                style_class: 'mission-control-terminal',
+                style_class: 'agent-mission-control-terminal',
                 child: new St.Icon({icon_name: 'utilities-terminal-symbolic'}),
             });
             focus.connect('clicked', () => {
@@ -235,33 +235,33 @@ class Indicator extends PanelMenu.Button {
             const label = new St.Label({
                 text: model.clean(location, 240),
                 x_expand: true,
-                style_class: 'mission-control-card-location',
+                style_class: 'agent-mission-control-card-location',
             });
             label.clutter_text.ellipsize = Pango.EllipsizeMode.MIDDLE;
             content.add_child(label);
         }
 
         if (model.needsYou(w))
-            card.add_style_class_name('mission-control-card-attention');
+            card.add_style_class_name('agent-mission-control-card-attention');
         if (w.stale)
             card.opacity = 150;
 
         const {ask, question, several} = model.firstQuestion(w);
         const canInput = model.canInput(w);
         if (question) {
-            this._cardLabel(content, (question.header ? `${question.header}: ` : '') + question.question, 'mission-control-card-question');
+            this._cardLabel(content, (question.header ? `${question.header}: ` : '') + question.question, 'agent-mission-control-card-question');
             const options = question.options || [];
             if (canInput && options.length)
                 this._choiceButtons(content, w, ask.id, options, question.multiple, ask.kind === 'permission');
             else if (!canInput && options.length)
-                this._cardLabel(content, `Options: ${options.map(opt => model.clean(opt, 80)).join(' · ')}`, 'mission-control-card-secondary');
+                this._cardLabel(content, `Options: ${options.map(opt => model.clean(opt, 80)).join(' · ')}`, 'agent-mission-control-card-secondary');
         } else if (w.stale) {
-            this._cardLabel(content, w.stale_reason || 'source unreachable', 'mission-control-card-message');
+            this._cardLabel(content, w.stale_reason || 'source unreachable', 'agent-mission-control-card-message');
         } else if (several) {
             const questions = (ask.questions || []).map(q => `• ${model.clean(q.question, 300)}`).join('\n');
-            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
+            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'agent-mission-control-card-secondary');
         } else if (w.message) {
-            this._cardLabel(content, w.message, 'mission-control-card-message');
+            this._cardLabel(content, w.message, 'agent-mission-control-card-message');
         }
 
         if (canInput && question && question.free_text)
@@ -274,9 +274,9 @@ class Indicator extends PanelMenu.Button {
 
         if (!question && ask && !several && !w.stale) {
             const questions = (ask.questions || []).map(q => `• ${model.clean(q.question, 300)}`).join('\n');
-            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
+            this._cardLabel(content, `${questions}\nAnswer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'agent-mission-control-card-secondary');
         } else if ((!canInput || several) && !w.stale && (ask || w.status === 'needs_input') && !several) {
-            this._cardLabel(content, `Answer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
+            this._cardLabel(content, `Answer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'agent-mission-control-card-secondary');
         }
 
         return card;
@@ -340,14 +340,14 @@ class Indicator extends PanelMenu.Button {
     }
 
     _choiceButtons(parent, w, askId, options, multiple, permission) {
-        const row = new St.BoxLayout({style_class: 'mission-control-choices'});
+        const row = new St.BoxLayout({style_class: 'agent-mission-control-choices'});
         parent.add_child(row);
         const cleanOptions = options.map(opt => model.clean(opt, 80));
         if (!multiple) {
             for (let i = 0; i < options.length; i++) {
                 const opt = options[i];
                 const button = this._button(cleanOptions[i],
-                    `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}`,
+                    `agent-mission-control-choice${permission && opt === 'reject' ? ' agent-mission-control-choice-reject' : ''}`,
                     () => {
                         this._answer(w, askId, opt);
                         this.menu.close();
@@ -358,7 +358,7 @@ class Indicator extends PanelMenu.Button {
         }
 
         let picked = [];
-        const send = this._button('Send selected', 'mission-control-choice mission-control-send', () => {
+        const send = this._button('Send selected', 'agent-mission-control-choice agent-mission-control-send', () => {
             this._answer(w, askId, picked);
             this.menu.close();
         });
@@ -370,7 +370,7 @@ class Indicator extends PanelMenu.Button {
             const label = new St.Label({text: cleanOptions[i]});
             const button = new St.Button({
                 can_focus: true,
-                style_class: `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}`,
+                style_class: `agent-mission-control-choice${permission && opt === 'reject' ? ' agent-mission-control-choice-reject' : ''}`,
                 child: label,
             });
             button.connect('clicked', () => {
@@ -378,9 +378,9 @@ class Indicator extends PanelMenu.Button {
                 const selected = picked.includes(opt);
                 label.text = `${selected ? '✓ ' : ''}${cleanOptions[i]}`;
                 if (selected)
-                    button.add_style_class_name('mission-control-choice-selected');
+                    button.add_style_class_name('agent-mission-control-choice-selected');
                 else
-                    button.remove_style_class_name('mission-control-choice-selected');
+                    button.remove_style_class_name('agent-mission-control-choice-selected');
                 const canSend = picked.length > 0;
                 send.reactive = canSend;
                 send.can_focus = canSend;
@@ -396,7 +396,7 @@ class Indicator extends PanelMenu.Button {
             hint_text: hint,
             can_focus: true,
             x_expand: true,
-            style_class: 'mission-control-entry',
+            style_class: 'agent-mission-control-entry',
         });
         entry.clutter_text.connect('activate', () => {
             const text = entry.get_text().trim();
@@ -422,9 +422,9 @@ class Indicator extends PanelMenu.Button {
     _report(r, okText) {
         if (r.status !== 200) {
             const why = r.status === 0 ? 'daemon unreachable' : (r.data && r.data.error) || `error ${r.status}`;
-            Main.notify('Mission control', model.clean(why));
+            Main.notify('Agent Mission Control', model.clean(why));
         } else {
-            log(`mission-control: ${okText}`);
+            log(`agent-mission-control: ${okText}`);
         }
         this._refresh();
     }
@@ -441,7 +441,7 @@ class Indicator extends PanelMenu.Button {
                 return true;
             }
         }
-        Main.notify('Mission control', 'No window found for that agent.');
+        Main.notify('Agent Mission Control', 'No window found for that agent.');
         return false;
     }
 
@@ -457,7 +457,7 @@ class Indicator extends PanelMenu.Button {
     }
 });
 
-export default class MissionControlExtension extends Extension {
+export default class AgentMissionControlExtension extends Extension {
     enable() {
         this._indicator = new Indicator();
         Main.panel.addToStatusArea(this.uuid, this._indicator);

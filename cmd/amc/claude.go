@@ -11,7 +11,7 @@ import (
 )
 
 // claudeHooks ingests Claude Code hook payloads posted by
-// `mission-control hook claude-code`. It answers fast: the hook command is
+// `amc hook claude-code`. It answers fast: the hook command is
 // holding up Claude while it waits.
 func claudeHooks(ctx context.Context, store *daemon.Store, cc *claudecode.Adapter, logf func(string, ...any), logText bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

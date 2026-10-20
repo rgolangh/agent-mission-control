@@ -1,7 +1,7 @@
-// mission-control bridge for OpenCode.
+// agent-mission-control bridge for OpenCode.
 //
 // A plain `opencode` runs its server in-process with no TCP port, so
-// mission-control's discovery (which looks for listening opencode
+// agent-mission-control's discovery (which looks for listening opencode
 // processes) can't see it. This plugin opens one: a loopback-only port that
 // forwards requests to the in-process server. The daemon then finds and
 // drives the session like `opencode --port 0`. All the logic stays in Go;
@@ -9,7 +9,7 @@
 //
 // - Every request needs `Authorization: Bearer <token>`. The token is random
 //   per process and written, with the port, to
-//   $XDG_RUNTIME_DIR/mission-control/opencode/<pid>.token (dir 0700, file
+//   $XDG_RUNTIME_DIR/agent-mission-control/opencode/<pid>.token (dir 0700, file
 //   0600): only this user can read it. Exception: GET /global/health, which
 //   discovery probes and which reveals only the version.
 // - The Host header must name the loopback port (defeats DNS rebinding), and
@@ -37,15 +37,15 @@ const deny = (status, error) =>
 const server = async ({ serverUrl, client }) => {
   // OpenCode may initialize plugins more than once per process; one door is
   // enough. (The daemon also watches only one port per process.)
-  if (globalThis.__missionControlBridge) return {}
+  if (globalThis.__agentMissionControlBridge) return {}
   const inner = client && client._client && client._client.getConfig ? client._client.getConfig() : null
   if (!inner || typeof inner.fetch !== "function") {
-    console.error("mission-control-bridge: SDK internals changed; not bridging (use opencode --port 0)")
+    console.error("agent-mission-control-bridge: SDK internals changed; not bridging (use opencode --port 0)")
     return {}
   }
   const runtime = process.env.XDG_RUNTIME_DIR
   if (!runtime) {
-    console.error("mission-control-bridge: XDG_RUNTIME_DIR is not set; not bridging")
+    console.error("agent-mission-control-bridge: XDG_RUNTIME_DIR is not set; not bridging")
     return {}
   }
 
@@ -57,7 +57,7 @@ const server = async ({ serverUrl, client }) => {
   }
 
   let port = 0
-  const bridge = (globalThis.__missionControlBridge = Bun.serve({
+  const bridge = (globalThis.__agentMissionControlBridge = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
     idleTimeout: 0, // /event is a long-lived SSE stream
@@ -80,7 +80,7 @@ const server = async ({ serverUrl, client }) => {
   port = bridge.port
 
   // Publish the credential where only this user can read it.
-  const dir = path.join(runtime, "mission-control", "opencode")
+  const dir = path.join(runtime, "agent-mission-control", "opencode")
   const file = path.join(dir, `${process.pid}.token`)
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -88,19 +88,19 @@ const server = async ({ serverUrl, client }) => {
     fs.writeFileSync(file, JSON.stringify({ port, token }) + "\n", { mode: 0o600 })
     fs.chmodSync(file, 0o600)
   } catch (e) {
-    console.error("mission-control-bridge: cannot write token, closing the bridge: " + e.message)
+    console.error("agent-mission-control-bridge: cannot write token, closing the bridge: " + e.message)
     bridge.stop(true)
-    globalThis.__missionControlBridge = undefined
+    globalThis.__agentMissionControlBridge = undefined
     return {}
   }
 
   return {
     dispose: async () => {
       bridge.stop(true)
-      globalThis.__missionControlBridge = undefined
+      globalThis.__agentMissionControlBridge = undefined
       try { fs.unlinkSync(file) } catch {}
     },
   }
 }
 
-export default { id: "mission-control-bridge", server }
+export default { id: "agent-mission-control-bridge", server }

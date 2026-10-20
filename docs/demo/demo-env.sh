@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start a throwaway mission-control setup that plays the README demo story:
+# Start a throwaway agent-mission-control setup that plays the README demo story:
 # a scripted fake OpenCode server (fake-opencode/), a daemon watching it, and
 # one Claude Code session fed through the real hook command. Nothing touches
 # your real daemon, sessions or ~/.claude.
@@ -10,7 +10,7 @@
 #
 # DEMO_LIVE=1 runs the demo daemon in your real runtime dir and on the
 # widget's port (127.0.0.1:4200), so the installed omarchy-shell widget shows
-# the demo. Stop your own daemon first (systemctl --user stop mission-control)
+# the demo. Stop your own daemon first (systemctl --user stop agent-mission-control)
 # and start it again afterwards.
 set -euo pipefail
 
@@ -28,7 +28,7 @@ stop() {
 
 build() {
   mkdir -p "$state/bin"
-  (cd "$repo" && go build -o "$state/bin/" ./cmd/mission-control ./docs/demo/fake-opencode)
+  (cd "$repo" && go build -o "$state/bin/" ./cmd/amc ./docs/demo/fake-opencode)
 }
 
 start() {
@@ -39,8 +39,8 @@ start() {
 
   if [ "${DEMO_LIVE:-}" = 1 ]; then
     runtime=$XDG_RUNTIME_DIR listen=127.0.0.1:4200
-    if "$state/bin/mission-control" status >/dev/null 2>&1; then
-      echo "a mission-control daemon is already running; stop it first" >&2
+    if "$state/bin/amc" status >/dev/null 2>&1; then
+      echo "an agent-mission-control daemon is already running; stop it first" >&2
       exit 1
     fi
   else
@@ -51,11 +51,11 @@ start() {
   "$state/bin/fake-opencode" -listen "127.0.0.1:$fake_port" >"$state/fake.log" 2>&1 &
   echo $! >"$state/fake.pid"
   XDG_RUNTIME_DIR=$runtime CLAUDE_CONFIG_DIR=$state/claude \
-    "$state/bin/mission-control" serve -listen "$listen" -opencode "http://127.0.0.1:$fake_port" \
+    "$state/bin/amc" serve -listen "$listen" -opencode "http://127.0.0.1:$fake_port" \
     >"$state/daemon.log" 2>&1 &
   echo $! >"$state/daemon.pid"
   for _ in $(seq 50); do
-    XDG_RUNTIME_DIR=$runtime "$state/bin/mission-control" status >/dev/null 2>&1 && break
+    XDG_RUNTIME_DIR=$runtime "$state/bin/amc" status >/dev/null 2>&1 && break
     sleep 0.1
   done
 
@@ -85,7 +85,7 @@ EOF
     "{$base,\"hook_event_name\":\"SessionStart\",\"source\":\"startup\"}" \
     "{$base,\"hook_event_name\":\"UserPromptSubmit\",\"prompt\":\"Add per-client rate limiting to the gateway\"}" \
     "{$base,\"hook_event_name\":\"Stop\",\"last_assistant_message\":\"$answer\"}"; do
-    echo "$ev" | XDG_RUNTIME_DIR=$1 "$state/bin/mission-control" hook claude-code
+    echo "$ev" | XDG_RUNTIME_DIR=$1 "$state/bin/amc" hook claude-code
   done
 }
 

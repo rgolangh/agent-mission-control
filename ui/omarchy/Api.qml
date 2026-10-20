@@ -1,6 +1,6 @@
 import QtQuick
 
-// Client for the mission-control daemon's HTTP API (see internal/daemon/http.go).
+// Client for the agent-mission-control daemon's HTTP API (see internal/daemon/http.go).
 // Polls GET /workflows and exposes the list sorted by urgency. The daemon is
 // the single source of truth: answering never changes local state, it only
 // asks the daemon, and the next poll shows what the agent actually did.
@@ -82,7 +82,7 @@ QtObject {
       loaded = true
       if (status !== 200 || !data) {
         reachable = false
-        error = status === 0 ? "mission-control is not running"
+        error = status === 0 ? "agent-mission-control is not running"
           : status === 401 ? "not authorized: cannot read the daemon's token file"
           : ("daemon returned " + status)
         return

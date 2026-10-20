@@ -1,4 +1,4 @@
-# mission-control threat model
+# agent-mission-control threat model
 
 Status: analysis of 2026-10-14 (against `5b53470`), updated the same day
 after fixing every finding rated Medium or above. Re-reviewed 2026-10-15
@@ -30,11 +30,11 @@ flowchart LR
   subgraph user["Your user account (one machine)"]
     OC["opencode TUI<br/>(+ bridge plugin: loopback port)"]
     CC["claude TUI<br/>(+ hooks plugin)"]
-    HK["mission-control hook<br/>(per hook event)"]
-    D["mission-control daemon<br/>unix socket (0600) +<br/>127.0.0.1:4200 (token)"]
+    HK["amc hook<br/>(per hook event)"]
+    D["agent-mission-control daemon<br/>unix socket (0600) +<br/>127.0.0.1:4200 (token)"]
     W["omarchy-shell widget"]
-    CLI["mission-control CLI"]
-    MCP["mission-control mcp<br/>(stdio)"]
+    CLI["amc CLI"]
+    MCP["agent-mission-control mcp<br/>(stdio)"]
     ORC["orchestrating agent<br/>(an LLM)"]
   end
   WEB(["web pages in your browser"])
@@ -112,7 +112,7 @@ M2). Report the missing Host validation to OpenCode.
 > **Fixed.** The bridge refuses a wrong `Host` (403) and any `Origin` (403),
 > and requires `Authorization: Bearer <token>` on everything except
 > `GET /global/health` (401 otherwise). The token is random per process and is
-> written with its port to `$XDG_RUNTIME_DIR/mission-control/opencode/<pid>.token`
+> written with its port to `$XDG_RUNTIME_DIR/agent-mission-control/opencode/<pid>.token`
 > (dir 0700, file 0600; removed on exit). The daemon reads it using the PID
 > discovery already knows, and sends it only to that port. This also gives
 > bridged sessions per-endpoint credentials (part of L4). *Verified live:*
@@ -176,10 +176,10 @@ access, and on a shared machine other users, can list workflows (titles,
 questions, paths) and answer, approve or send. Same for the bridge and for
 `opencode --port`.
 *Fix:* Unix socket for the CLI, hooks and MCP; for TCP clients (the widget,
-a future web UI), a random bearer token in `$XDG_RUNTIME_DIR/mission-control/token`
+a future web UI), a random bearer token in `$XDG_RUNTIME_DIR/agent-mission-control/token`
 (0600) read by clients. Apply the same token to the bridge.
 
-> **Fixed.** The daemon serves on `$XDG_RUNTIME_DIR/mission-control/api.sock`
+> **Fixed.** The daemon serves on `$XDG_RUNTIME_DIR/agent-mission-control/api.sock`
 > (dir 0700, socket 0600; it refuses a runtime dir others can access, and
 > refuses to start if another instance holds the socket). The CLI, hooks and
 > MCP default to it. TCP (`-listen`, for the widget; empty disables it)
@@ -225,7 +225,7 @@ markup, so the same applies there, depending on the notification daemon
 ### Low
 
 **L1. Terminal escape injection in CLI output.** *Verified.*
-`mission-control status` printed an agent-supplied title containing
+`amc status` printed an agent-supplied title containing
 `ESC]0;…BEL` and `ESC[2J` raw. That retitles the terminal and clears the
 screen. Some terminals honour more dangerous sequences (OSC 52 clipboard
 writes, hyperlinks). *Fix:* strip C0/C1 control characters from all
@@ -285,7 +285,7 @@ to a known OpenCode install.
 
 **L5. Supply chain.** *Design.*
 The bridge would install from GitHub into **every** OpenCode process, and the
-Claude plugin runs `mission-control` from `PATH` on every hook. *Fix:* pin
+Claude plugin runs `amc` from `PATH` on every hook. *Fix:* pin
 plugin specifiers to a tag or commit (`github:…#<sha>`); publish SHA-256
 checksums (and ideally Sigstore signatures) for release binaries; pin GitHub
 Actions by SHA; keep the Go code stdlib-only (current state: zero third-party
@@ -320,7 +320,7 @@ availability risk, not a security one: it fails closed (no bridge).
   10,000 parent links, and 1,000 Claude Code adapter sessions; OpenCode JSON
   snapshots are limited to 4 MiB per response, 16 MiB total, 1,000 sessions,
   and 30 seconds; SSE event frames are limited to 1 MiB.
-- **Hooks can't harm the agent:** `mission-control hook` prints nothing,
+- **Hooks can't harm the agent:** `amc hook` prints nothing,
   always exits 0, and gives up after 400 ms.
 - **No shell injection from agent text:** notifications and window focusing
   use argv (`execDetached`), never a shell string.
@@ -345,7 +345,7 @@ sessions becomes cross-user prompt-injection input (H2 at team scale).
    explicitly; discovery never receives the password.
 3. **L5:** signatures (e.g. Sigstore) for release binaries. Done: Actions
    pinned by SHA, SHA-256 checksums published with each release, and the
-   plugins ship inside the binary (`mission-control install`), so there is
+   plugins ship inside the binary (`amc install`), so there is
    no separate plugin specifier to pin.
 4. The bridge's token file survives a killed (SIGTERM) OpenCode, since the
    plugin's `dispose` doesn't run. Harmless (the daemon reads it by live

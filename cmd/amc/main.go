@@ -1,8 +1,8 @@
-// Command mission-control is the workflow state daemon and its CLI.
+// Command amc is the workflow state daemon and its CLI.
 //
-//	mission-control serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover]
-//	mission-control status [-addr http://127.0.0.1:4200] [-json]
-//	mission-control mcp    [-addr http://127.0.0.1:4200]
+//	amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover]
+//	amc status [-addr http://127.0.0.1:4200] [-json]
+//	amc mcp    [-addr http://127.0.0.1:4200]
 //
 // `serve` subscribes to each OpenCode server given with -opencode (start
 // OpenCode with `opencode --port N`, or `opencode serve --port N`), folds the
@@ -83,26 +83,26 @@ func main() {
 		usage()
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "mission-control:", err)
+		fmt.Fprintln(os.Stderr, "amc:", err)
 		os.Exit(1)
 	}
 }
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  mission-control serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
-  mission-control status [-addr http://127.0.0.1:4200] [-json]
-  mission-control show   [-addr URL] [-json] <id>            pending asks + history
-  mission-control answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
-  mission-control send   [-addr URL] <id> <text...>          send free text
-  mission-control mcp    [-addr URL]                         MCP server on stdio (for agents)
-  mission-control install   [-dry-run] [-only a,b] [-enable] [-force]
+  amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
+  amc status [-addr http://127.0.0.1:4200] [-json]
+  amc show   [-addr URL] [-json] <id>            pending asks + history
+  amc answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
+  amc send   [-addr URL] <id> <text...>          send free text
+  amc mcp    [-addr URL]                         MCP server on stdio (for agents)
+  amc install   [-dry-run] [-only a,b] [-enable] [-force]
                                     binary, user service, agent plugins, desktop UI
-  mission-control uninstall [-dry-run] [-force]             remove what install wrote
-  mission-control doctor                                    check the whole setup
-  mission-control judge [-all] [-only RULES] <transcript.jsonl|file|->
+  amc uninstall [-dry-run] [-force]             remove what install wrote
+  amc doctor                                    check the whole setup
+  amc judge [-all] [-only RULES] <transcript.jsonl|file|->
                                     run the done/stuck rules (replay a transcript)
-  mission-control version
+  amc version
 <id> is the ID column from status (a unique suffix is enough). <choice> is an
 option's number or label; for a permission: once | always | reject.
 `)
@@ -249,7 +249,7 @@ func serve(args []string) error {
 		}()
 	}
 
-	// Claude Code: push-based, through `mission-control hook claude-code`.
+	// Claude Code: push-based, through `amc hook claude-code`.
 	cc := claudecode.New()
 	mux := http.NewServeMux()
 	mux.Handle("/", daemon.Handler(store))
@@ -319,7 +319,7 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 	sock := paths.Socket()
 	if c, err := net.Dial("unix", sock); err == nil {
 		c.Close()
-		return fmt.Errorf("another mission-control is already serving %s", sock)
+		return fmt.Errorf("another amc daemon is already serving %s", sock)
 	}
 	_ = os.Remove(sock) // stale socket from a previous run
 	ul, err := net.Listen("unix", sock)
@@ -332,7 +332,7 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 	}
 	servers := []*http.Server{newServer(mux)}
 	listeners := []net.Listener{ul}
-	logf("API on unix:%s (try: mission-control status)", sock)
+	logf("API on unix:%s (try: amc status)", sock)
 
 	if listen != "" {
 		tl, err := net.Listen("tcp", listen)

@@ -1,6 +1,6 @@
-// HTTP client for the mission-control daemon, for GNOME Shell (and plain
+// HTTP client for the agent-mission-control daemon, for GNOME Shell (and plain
 // gjs, where it is tested). The daemon's TCP port requires the bearer token
-// it writes to $XDG_RUNTIME_DIR/mission-control/token on every start and
+// it writes to $XDG_RUNTIME_DIR/agent-mission-control/token on every start and
 // removes when it stops. The token is re-read before every request, and with
 // no token file there is no request: while the daemon is down, whatever else
 // holds its port gets neither a token nor your answers.
@@ -16,7 +16,7 @@ export class Client {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this._session = new Soup.Session({timeout: 6});
         const runtime = GLib.getenv('XDG_RUNTIME_DIR') || '';
-        this._tokenFile = Gio.File.new_for_path(`${runtime}/mission-control/token`);
+        this._tokenFile = Gio.File.new_for_path(`${runtime}/agent-mission-control/token`);
     }
 
     async _token(cancellable) {

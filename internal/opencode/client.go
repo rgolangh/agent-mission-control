@@ -21,7 +21,7 @@ type Client struct {
 	BaseURL  string // e.g. "http://localhost:4096"
 	Username string // defaults to "opencode" server-side if a password is set
 	Password string // OPENCODE_SERVER_PASSWORD, empty if server has no auth
-	Token    string // bearer token of a mission-control bridge port (see integrations/opencode)
+	Token    string // bearer token of an agent-mission-control bridge port (see integrations/opencode)
 	// TokenFunc, if set, supplies Token lazily: it is called until it
 	// returns one (a bridge writes its token file just after opening its port).
 	TokenFunc func() string

@@ -1,7 +1,7 @@
 {
-  "uuid": "mission-control@rgolangh.github.io",
-  "name": "Mission control",
-  "description": "See which coding-agent sessions (OpenCode, Claude Code) are working, waiting on you, done or stuck, and answer them from the top bar. Needs the mission-control daemon.",
+  "uuid": "agent-mission-control@rgolangh.github.io",
+  "name": "Agent Mission Control",
+  "description": "See which coding-agent sessions (OpenCode, Claude Code) are working, waiting on you, done or stuck, and answer them from the top bar. Needs the agent-mission-control daemon.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/rgolangh/agent-mission-control",
   "version-name": "0.1.0"

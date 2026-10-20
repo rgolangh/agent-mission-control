@@ -1,5 +1,5 @@
 // Package discovery finds OpenCode servers already running on this machine so
-// mission-control can attach to them without being told their URLs.
+// agent-mission-control can attach to them without being told their URLs.
 //
 // Method: map listening TCP sockets to the processes that own them (via
 // /proc), keep only processes that look like OpenCode, then confirm each
@@ -292,7 +292,7 @@ func (t *tracker) update(found []Endpoint) []Change {
 }
 
 // onePerProcess keeps one endpoint per OpenCode process. A process can
-// listen on several ports (its own --port plus the mission-control bridge
+// listen on several ports (its own --port plus the agent-mission-control bridge
 // plugin, which OpenCode may even load twice), and every one of them serves
 // the same sessions: watching more than one would double every event and
 // make the workflows' origin flap. The endpoint already being watched wins,
