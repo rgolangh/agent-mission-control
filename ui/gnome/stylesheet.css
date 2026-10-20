@@ -26,6 +26,31 @@
   font-size: 0.85em;
 }
 
+.mission-control-view-row {
+  spacing: 6px;
+  padding: 4px 10px 8px;
+}
+
+.mission-control-view {
+  padding: 4px 8px;
+  border: 1px solid rgba(205, 214, 244, 0.16);
+  border-radius: 6px;
+  background-color: rgba(205, 214, 244, 0.05);
+  font-size: 0.82em;
+}
+
+.mission-control-view:hover,
+.mission-control-view:focus,
+.mission-control-view-selected {
+  background-color: rgba(205, 214, 244, 0.16);
+}
+
+.mission-control-shortcut-hint {
+  padding-top: 3px;
+  color: #a6adc8;
+  font-size: 0.72em;
+}
+
 .mission-control-dim,
 .mission-control-card-location,
 .mission-control-card-secondary {

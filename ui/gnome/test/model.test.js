@@ -19,6 +19,12 @@ const wfs = [
 ];
 eq(m.sortByUrgency(wfs).map(w => w.id), ['e', 'b', 'd', 'c', 'a'], 'urgency order');
 eq(m.counts(wfs), {needs_input: 1, stuck: 1, failed: 0, running: 1, done: 1, attention: 2}, 'counts skip stale');
+eq(m.viewCounts(wfs), {all: 5, needsYou: 2, waiting: 1, running: 1}, 'view counts include stale only in all');
+eq(m.filterWorkflows(wfs, m.VIEW_ALL).map(w => w.id), ['a', 'b', 'c', 'd', 'e'], 'all view retains idle and stale workflows');
+eq(m.filterWorkflows(wfs, m.VIEW_NEEDS_YOU).map(w => w.id), ['b', 'd'], 'needs-you view excludes stale workflows');
+eq(m.filterWorkflows(wfs, m.VIEW_WAITING).map(w => w.id), ['b'], 'waiting view excludes other attention states and stale workflows');
+eq(m.filterWorkflows(wfs, m.VIEW_RUNNING).map(w => w.id), ['c'], 'running view excludes stale workflows');
+eq(m.urgencyRank(wfs[1]), 0, 'attention has first urgency rank');
 eq(m.summary(wfs), '1 waiting on you · 1 stuck · 1 running', 'summary');
 eq(m.summary([]), 'no workflows', 'empty summary');
 eq(m.age('2026-10-14T10:00:00.123456789Z', Date.parse('2026-10-14T10:05:00Z')), '5m', 'nanosecond timestamps (4m59.9s rounds to 5m)');

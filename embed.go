@@ -12,4 +12,5 @@ import "embed"
 //go:embed all:integrations
 //go:embed ui/omarchy/manifest.json ui/omarchy/Widget.qml ui/omarchy/Api.qml ui/omarchy/README.md
 //go:embed ui/gnome/metadata.json ui/gnome/extension.js ui/gnome/client.js ui/gnome/model.js ui/gnome/stylesheet.css
+//go:embed ui/gnome/schemas/*.gschema.xml ui/gnome/schemas/gschemas.compiled
 var Assets embed.FS

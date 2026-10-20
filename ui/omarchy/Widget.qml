@@ -52,6 +52,14 @@ Item {
     function toggle(): void { root.toggle() }
   }
 
+  // Hyprland's global-shortcuts protocol; the installer adds a matching bind.
+  GlobalShortcut {
+    appid: "org.rgolangh.agent-mission-control"
+    name: "toggle-panel"
+    description: "Toggle Mission Control"
+    onPressed: root.toggle()
+  }
+
   // The daemon writes a fresh token on every start; only this user can read it.
   FileView {
     id: tokenFile

@@ -96,7 +96,7 @@ func usage() {
   mission-control answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
   mission-control send   [-addr URL] <id> <text...>          send free text
   mission-control mcp    [-addr URL]                         MCP server on stdio (for agents)
-  mission-control install   [-dry-run] [-only a,b] [-enable] [-force]
+  mission-control install   [-dry-run] [-only a,b] [-enable] [-hyprland-keybind] [-force]
                                     binary, user service, agent plugins, desktop UI
   mission-control uninstall [-dry-run] [-force]             remove what install wrote
   mission-control doctor                                    check the whole setup

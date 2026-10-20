@@ -7,7 +7,9 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
+import Meta from 'gi://Meta';
 import Pango from 'gi://Pango';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -30,6 +32,10 @@ class Indicator extends PanelMenu.Button {
         this._workflows = [];
         this._reachable = false;
         this._loaded = false;
+        this._view = model.VIEW_ALL;
+        this._cards = new Map();
+        this._cardOrder = [];
+        this._cardState = new Map();
         this._signatures = null;
         this._inFlight = false;
         this._scannerTimer = 0;
@@ -42,6 +48,7 @@ class Indicator extends PanelMenu.Button {
         box.add_child(this._count);
         this.add_child(box);
 
+        this.menu.actor.connect('captured-event', (_actor, event) => this._handleMenuShortcut(event));
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
                 this._rebuild();
@@ -76,10 +83,8 @@ class Indicator extends PanelMenu.Button {
                 fresh.forEach(w => this._notify(w));
             }
             this._updatePanel();
-            // Don't rebuild under the pointer while the menu is open: an
-            // entry being typed into would vanish. It is rebuilt on open.
-            if (!this.menu.isOpen)
-                this._rebuild();
+            if (this.menu.isOpen)
+                this._syncMenu();
         } catch (e) {
             if (!e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 logError(e, 'mission-control');
@@ -114,6 +119,9 @@ class Indicator extends PanelMenu.Button {
         this._stopCardScanners();
         this.menu.removeAll();
         this.menu.box.add_style_class_name('mission-control-menu');
+        this._cards = new Map();
+        this._cardOrder = [];
+        this._sectionInfo = null;
 
         const header = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
@@ -125,51 +133,284 @@ class Indicator extends PanelMenu.Button {
             text: 'Mission control',
             style_class: 'mission-control-header-title',
         }));
-        heading.add_child(new St.Label({
+        this._menuSummary = new St.Label({
             text: !this._loaded ? 'connecting…'
                 : this._reachable ? model.summary(this._workflows) : this._error,
             style_class: `mission-control-header-summary${this._reachable ? '' : ' mission-control-dim'}`,
-        }));
+        });
+        heading.add_child(this._menuSummary);
         header.add_child(heading);
         this.menu.addMenuItem(header);
 
-        if (this._loaded && !this._reachable) {
-            this._infoItem(this.menu, `Start the daemon: mission-control install (or systemctl --user start mission-control)\nLooking for it at http://127.0.0.1:4200`);
-            return;
-        }
-        if (this._reachable && !this._workflows.length) {
-            this._infoItem(this.menu, 'No workflows yet: start an opencode or claude session.');
-            return;
-        }
-        for (const w of this._workflows) {
-            try {
-                this.menu.addMenuItem(this._workflowItem(w));
-            } catch (e) {
-                logError(e, `mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
-                this._infoItem(this.menu, `Couldn't display ${model.clean(w.title || w.source_id, 80)}. See the shell log for details.`);
-            }
-        }
-    }
-
-    _infoItem(menu, text) {
-        const item = new PopupMenu.PopupMenuItem('', {reactive: false});
-        item.label.text = model.clean(text, 400);
-        item.label.clutter_text.line_wrap = true;
-        menu.addMenuItem(item);
-        return item;
-    }
-
-    _workflowItem(w) {
-        const card = new PopupMenu.PopupBaseMenuItem({
+        const viewRow = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
             can_focus: false,
-            style_class: 'mission-control-card',
+            style_class: 'mission-control-view-row',
         });
+        const controls = new St.BoxLayout({vertical: true, x_expand: true});
+        const views = new St.BoxLayout({x_expand: true});
+        this._viewButtons = new Map();
+        for (const [view, title] of [
+            [model.VIEW_ALL, 'All'],
+            [model.VIEW_NEEDS_YOU, 'Needs you'],
+            [model.VIEW_WAITING, 'Waiting'],
+            [model.VIEW_RUNNING, 'Running'],
+        ]) {
+            const label = new St.Label({text: title});
+            const button = new St.Button({
+                can_focus: true,
+                x_expand: true,
+                style_class: 'mission-control-view',
+                child: label,
+            });
+            button.connect('clicked', () => {
+                this._setView(view);
+            });
+            views.add_child(button);
+            this._viewButtons.set(view, {button, label, title});
+        }
+        controls.add_child(views);
+        controls.add_child(new St.Label({
+            text: 'Ctrl+1–4: switch view · Ctrl+R: refresh',
+            style_class: 'mission-control-shortcut-hint',
+        }));
+        viewRow.add_child(controls);
+        this.menu.addMenuItem(viewRow);
+
+        this._workflowSection = new PopupMenu.PopupMenuSection();
+        this.menu.addMenuItem(this._workflowSection);
+        this._syncMenu();
+    }
+
+    _handleMenuShortcut(event) {
+        if (!this.menu.isOpen || event.type() !== Clutter.EventType.KEY_PRESS || this._menuTextEntryFocused())
+            return Clutter.EVENT_PROPAGATE;
+
+        let modifiers = event.get_state();
+        modifiers &= ~Clutter.ModifierType.LOCK_MASK;
+        modifiers &= ~Clutter.ModifierType.MOD2_MASK;
+        modifiers &= Clutter.ModifierType.MODIFIER_MASK;
+        if (modifiers !== Clutter.ModifierType.CONTROL_MASK)
+            return Clutter.EVENT_PROPAGATE;
+
+        const view = {
+            [Clutter.KEY_1]: model.VIEW_ALL,
+            [Clutter.KEY_2]: model.VIEW_NEEDS_YOU,
+            [Clutter.KEY_3]: model.VIEW_WAITING,
+            [Clutter.KEY_4]: model.VIEW_RUNNING,
+        }[event.get_key_symbol()];
+        if (view) {
+            this._setView(view, true);
+            return Clutter.EVENT_STOP;
+        }
+
+        if (event.get_key_symbol() === Clutter.KEY_r) {
+            this._viewButtons.get(this._view)?.button.grab_key_focus();
+            this._refresh();
+            return Clutter.EVENT_STOP;
+        }
+
+        return Clutter.EVENT_PROPAGATE;
+    }
+
+    _menuTextEntryFocused() {
+        let focused = global.stage.get_key_focus();
+        while (focused) {
+            for (const card of this._cards.values()) {
+                if (Object.values(card._entries || {}).includes(focused))
+                    return true;
+                if (Object.values(card._entries || {}).some(entry => entry.clutter_text === focused))
+                    return true;
+            }
+            focused = focused.get_parent();
+        }
+        return false;
+    }
+
+    _setView(view, focusButton = false) {
+        if (this._view === view) {
+            if (focusButton)
+                this._viewButtons.get(view)?.button.grab_key_focus();
+            return;
+        }
+        this._view = view;
+        this._syncMenu();
+        if (focusButton)
+            this._viewButtons.get(view)?.button.grab_key_focus();
+    }
+
+    _syncMenu() {
+        if (!this._menuSummary || !this._workflowSection)
+            return;
+
+        this._menuSummary.text = !this._loaded ? 'connecting…'
+            : this._reachable ? model.summary(this._workflows) : this._error;
+        if (this._reachable)
+            this._menuSummary.remove_style_class_name('mission-control-dim');
+        else
+            this._menuSummary.add_style_class_name('mission-control-dim');
+
+        const counts = model.viewCounts(this._workflows);
+        for (const [view, buttonInfo] of this._viewButtons) {
+            const count = view === model.VIEW_ALL ? counts.all
+                : view === model.VIEW_NEEDS_YOU ? counts.needsYou
+                    : view === model.VIEW_WAITING ? counts.waiting : counts.running;
+            buttonInfo.label.text = `${buttonInfo.title} ${count}`;
+            if (this._view === view)
+                buttonInfo.button.add_style_class_name('mission-control-view-selected');
+            else
+                buttonInfo.button.remove_style_class_name('mission-control-view-selected');
+        }
+
+        if (this._loaded && !this._reachable) {
+            this._hideWorkflowCards();
+            this._setSectionInfo(`Start the daemon: mission-control install (or systemctl --user start mission-control)\nLooking for it at http://127.0.0.1:4200`);
+            return;
+        }
+        if (!this._reachable) {
+            this._hideWorkflowCards();
+            this._setSectionInfo('');
+            return;
+        }
+
+        const workflows = model.filterWorkflows(this._workflows, this._view);
+        const visible = new Set(workflows.map(w => this._workflowKey(w)));
+        const present = new Set(this._workflows.map(w => this._workflowKey(w)));
+
+        for (const [id, card] of this._cards) {
+            if (present.has(id))
+                continue;
+            this._removeWorkflowCard(card);
+        }
+
+        for (const w of this._workflows) {
+            const id = this._workflowKey(w);
+            let card = this._cards.get(id);
+            try {
+                const oldRank = card ? model.urgencyRank(card._workflow) : null;
+                if (!card) {
+                    card = this._workflowItem(w);
+                    this._cards.set(id, card);
+                    this._insertWorkflowCard(card);
+                } else if (card._missing || card._signature !== this._workflowCardSignature(w)) {
+                    this._workflowItem(w, card);
+                } else {
+                    card._workflow = w;
+                    card._statusLabel.text = `${model.statusLabel(w)} · ${model.age(w.updated_at)}`;
+                }
+                if (oldRank !== null && oldRank !== model.urgencyRank(card._workflow))
+                    this._reorderWorkflowCard(card);
+                card._missing = false;
+                card.visible = visible.has(id);
+                if (card.visible && card._scanner && !card._scanner.stale)
+                    this._startCardScanner(card._scanner);
+                else if (!card.visible)
+                    this._stopCardScanners(card);
+            } catch (e) {
+                logError(e, `mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
+                if (!card)
+                    this._setSectionInfo(`Couldn't display ${model.clean(w.title || w.source_id, 80)}. See the shell log for details.`);
+            }
+        }
+
+        if (!this._workflows.length)
+            this._setSectionInfo('No workflows yet: start an opencode or claude session.');
+        else if (!workflows.length)
+            this._setSectionInfo(`No ${this._view === model.VIEW_NEEDS_YOU ? 'workflows need you'
+                : this._view === model.VIEW_WAITING ? 'workflows are waiting'
+                    : 'workflows are running'} right now.`);
+        else
+            this._setSectionInfo('');
+    }
+
+    _workflowKey(w) {
+        return w.id || w.source_id;
+    }
+
+    _workflowCardSignature(w) {
+        return JSON.stringify([
+            w.id, w.source_id, w.title, w.location, w.status, w.message,
+            w.stale, w.stale_reason, w.pids, w.pending, w.capabilities,
+        ]);
+    }
+
+    _insertWorkflowCard(card) {
+        const id = card._workflowId;
+        const rank = model.urgencyRank(card._workflow);
+        let position = this._cardOrder.findIndex(existingId =>
+            model.urgencyRank(this._cards.get(existingId)._workflow) > rank);
+        if (position < 0)
+            position = this._cardOrder.length;
+        this._workflowSection.addMenuItem(card, position);
+        this._cardOrder.splice(position, 0, id);
+    }
+
+    _reorderWorkflowCard(card) {
+        const current = this._cardOrder.indexOf(card._workflowId);
+        if (current < 0)
+            return;
+        this._cardOrder.splice(current, 1);
+        const rank = model.urgencyRank(card._workflow);
+        let position = this._cardOrder.findIndex(existingId =>
+            model.urgencyRank(this._cards.get(existingId)._workflow) > rank);
+        if (position < 0)
+            position = this._cardOrder.length;
+        this._workflowSection.moveMenuItem(card, position);
+        this._cardOrder.splice(position, 0, card._workflowId);
+    }
+
+    _removeWorkflowCard(card) {
+        this._stopCardScanners(card);
+        card.visible = false;
+        card._missing = true;
+        this._cardState.delete(card._workflowId);
+    }
+
+    _hideWorkflowCards() {
+        for (const card of this._cards.values()) {
+            card.visible = false;
+            this._stopCardScanners(card);
+        }
+    }
+
+    _setSectionInfo(text) {
+        if (!this._sectionInfo) {
+            this._sectionInfo = new PopupMenu.PopupMenuItem('', {reactive: false});
+            this._sectionInfo.label.clutter_text.line_wrap = true;
+            this._workflowSection.addMenuItem(this._sectionInfo);
+        }
+        this._sectionInfo.visible = !!text;
+        if (text)
+            this._sectionInfo.label.text = model.clean(text, 400);
+    }
+
+    _workflowItem(w, card = null) {
+        if (!card) {
+            card = new PopupMenu.PopupBaseMenuItem({
+                reactive: false,
+                can_focus: false,
+                style_class: 'mission-control-card',
+            });
+            card._workflowId = this._workflowKey(w);
+            card._restoreEntry = null;
+        } else {
+            if (!card._missing)
+                this._captureCardInput(card);
+            this._stopCardScanners(card);
+            if (card._content) {
+                card.remove_child(card._content);
+                card._content.destroy();
+            }
+        }
+        card._workflow = w;
+        card._entries = {};
+        card._scanner = null;
         const content = new St.BoxLayout({
             vertical: true,
             x_expand: true,
             style_class: 'mission-control-card-content',
         });
+        card._content = content;
         card.add_child(content);
 
         const heading = new St.BoxLayout({
@@ -178,7 +419,7 @@ class Indicator extends PanelMenu.Button {
         });
         const statusClass = `mission-control-status mission-control-status-${this._statusClass(w.status)}`;
         if (w.status === 'running') {
-            heading.add_child(this._cardScanner(w.stale));
+            heading.add_child(this._cardScanner(w.stale, card));
         } else {
             const statusIcon = new St.Icon({
                 icon_name: {
@@ -205,6 +446,7 @@ class Indicator extends PanelMenu.Button {
             y_align: Clutter.ActorAlign.CENTER,
             style_class: `mission-control-card-status mission-control-status-${this._statusClass(w.status)}`,
         });
+        card._statusLabel = status;
         heading.add_child(status);
 
         if (w.pids && w.pids.length && !w.stale) {
@@ -234,8 +476,9 @@ class Indicator extends PanelMenu.Button {
 
         if (model.needsYou(w))
             card.add_style_class_name('mission-control-card-attention');
-        if (w.stale)
-            card.opacity = 150;
+        else
+            card.remove_style_class_name('mission-control-card-attention');
+        card.opacity = w.stale ? 150 : 255;
 
         const {ask, question, several} = model.firstQuestion(w);
         const canInput = model.canInput(w);
@@ -256,11 +499,11 @@ class Indicator extends PanelMenu.Button {
         }
 
         if (canInput && question && question.free_text)
-            content.add_child(this._entry('or type an answer, Enter to send', text => this._answer(w, ask.id, text)));
+            content.add_child(this._entry('or type an answer, Enter to send', text => this._answer(w, ask.id, text), w, `answer:${ask.id}`, card));
         else if (model.canFollowUp(w)) {
             const hint = w.status === 'done' ? 'follow up…'
                 : w.status === 'needs_input' ? 'reply…' : 'tell it how to continue…';
-            content.add_child(this._entry(hint, text => this._send(w, text)));
+            content.add_child(this._entry(hint, text => this._send(w, text), w, 'follow-up', card));
         }
 
         if (!question && ask && !several && !w.stale) {
@@ -270,16 +513,48 @@ class Indicator extends PanelMenu.Button {
             this._cardLabel(content, `Answer in its terminal${w.pids && w.pids.length ? ' (terminal button jumps there)' : ''}.`, 'mission-control-card-secondary');
         }
 
+        card._signature = this._workflowCardSignature(w);
+        const restoreEntry = card._restoreEntry;
+        card._restoreEntry = null;
+        if (restoreEntry && card._entries[restoreEntry]) {
+            const entry = card._entries[restoreEntry];
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                if (this.menu.isOpen && entry.get_parent())
+                    entry.grab_key_focus();
+                return GLib.SOURCE_REMOVE;
+            });
+        }
         return card;
     }
 
-    _cardScanner(stale) {
+    _cardStateFor(w) {
+        const id = this._workflowKey(w);
+        if (!this._cardState.has(id))
+            this._cardState.set(id, {entries: {}, cursors: {}, picked: {}});
+        return this._cardState.get(id);
+    }
+
+    _captureCardInput(card) {
+        const state = this._cardStateFor(card._workflow);
+        const focused = global.stage.get_key_focus();
+        card._restoreEntry = null;
+        for (const [key, entry] of Object.entries(card._entries || {})) {
+            state.entries[key] = entry.get_text();
+            state.cursors[key] = entry.clutter_text.cursor_position;
+            if (focused === entry || focused === entry.clutter_text)
+                card._restoreEntry = key;
+        }
+    }
+
+    _cardScanner(stale, card) {
         const scanner = {
             frame: 0,
             labels: [],
             cells: 8,
             stale,
+            card,
         };
+        card._scanner = scanner;
         const row = new St.BoxLayout({
             y_align: Clutter.ActorAlign.CENTER,
             style_class: 'mission-control-card-scanner',
@@ -323,6 +598,8 @@ class Indicator extends PanelMenu.Button {
     }
 
     _startCardScanner(scanner) {
+        if (this._scanners.includes(scanner))
+            return;
         this._scanners.push(scanner);
         if (this._scannerTimer)
             return;
@@ -345,16 +622,24 @@ class Indicator extends PanelMenu.Button {
         });
     }
 
-    _stopCardScanners() {
-        if (this._scannerTimer) {
-            GLib.Source.remove(this._scannerTimer);
-            this._scannerTimer = 0;
-        }
-        for (const scanner of this._scanners) {
+    _stopCardScanners(card = null) {
+        const stopped = card
+            ? this._scanners.filter(scanner => scanner.card === card)
+            : this._scanners;
+        if (card)
+            this._scanners = this._scanners.filter(scanner => scanner.card !== card);
+        else
+            this._scanners = [];
+
+        for (const scanner of stopped) {
             scanner.frame = 0;
             this._renderCardScanner(scanner);
         }
-        this._scanners = [];
+
+        if (!this._scanners.length && this._scannerTimer) {
+            GLib.Source.remove(this._scannerTimer);
+            this._scannerTimer = 0;
+        }
     }
 
     _statusClass(status) {
@@ -400,7 +685,9 @@ class Indicator extends PanelMenu.Button {
             return;
         }
 
-        let picked = [];
+        const state = this._cardStateFor(w);
+        let picked = (state.picked[askId] || []).filter(option => options.includes(option));
+        state.picked[askId] = picked;
         const send = this._button('Send selected', 'mission-control-choice mission-control-send', () => {
             this._answer(w, askId, picked);
             this.menu.close();
@@ -410,14 +697,16 @@ class Indicator extends PanelMenu.Button {
         send.opacity = 128;
         for (let i = 0; i < options.length; i++) {
             const opt = options[i];
-            const label = new St.Label({text: cleanOptions[i]});
+            const selected = picked.includes(opt);
+            const label = new St.Label({text: `${selected ? '✓ ' : ''}${cleanOptions[i]}`});
             const button = new St.Button({
                 can_focus: true,
-                style_class: `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}`,
+                style_class: `mission-control-choice${permission && opt === 'reject' ? ' mission-control-choice-reject' : ''}${selected ? ' mission-control-choice-selected' : ''}`,
                 child: label,
             });
             button.connect('clicked', () => {
                 picked = model.togglePick(picked, opt, options);
+                state.picked[askId] = picked;
                 const selected = picked.includes(opt);
                 label.text = `${selected ? '✓ ' : ''}${cleanOptions[i]}`;
                 if (selected)
@@ -431,20 +720,35 @@ class Indicator extends PanelMenu.Button {
             });
             row.add_child(button);
         }
+        if (picked.length) {
+            send.reactive = true;
+            send.can_focus = true;
+            send.opacity = 255;
+        }
         row.add_child(send);
     }
 
-    _entry(hint, onSubmit) {
+    _entry(hint, onSubmit, w, entryKey, card) {
         const entry = new St.Entry({
             hint_text: hint,
             can_focus: true,
             x_expand: true,
             style_class: 'mission-control-entry',
         });
+        const state = this._cardStateFor(w);
+        entry.set_text(state.entries[entryKey] || '');
+        if (Number.isInteger(state.cursors[entryKey]))
+            entry.clutter_text.cursor_position = state.cursors[entryKey];
+        card._entries[entryKey] = entry;
+        entry.clutter_text.connect('text-changed', () => {
+            state.entries[entryKey] = entry.get_text();
+            state.cursors[entryKey] = entry.clutter_text.cursor_position;
+        });
         entry.clutter_text.connect('activate', () => {
             const text = entry.get_text().trim();
             if (text) {
                 entry.set_text('');
+                state.entries[entryKey] = '';
                 onSubmit(text);
                 this.menu.close();
             }
@@ -504,9 +808,20 @@ export default class MissionControlExtension extends Extension {
     enable() {
         this._indicator = new Indicator();
         Main.panel.addToStatusArea(this.uuid, this._indicator);
+        this._settings = this.getSettings();
+        const action = Main.wm.addKeybinding(
+            'toggle-menu',
+            this._settings,
+            Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
+            Shell.ActionMode.NORMAL | Shell.ActionMode.POPUP,
+            () => this._indicator?.menu.toggle());
+        if (action === Meta.KeyBindingAction.NONE && this._settings.get_strv('toggle-menu').length)
+            log('mission-control: the global shortcut could not be registered; it may already be in use');
     }
 
     disable() {
+        Main.wm.removeKeybinding('toggle-menu');
+        this._settings = null;
         this._indicator?.destroy();
         this._indicator = null;
     }

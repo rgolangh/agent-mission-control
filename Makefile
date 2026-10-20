@@ -9,5 +9,7 @@ debug:
 install: build
 	./mission-control install --enable
 
-.PHONY: build debug install
+gnome-schemas:
+	glib-compile-schemas --strict ui/gnome/schemas
 
+.PHONY: build debug install gnome-schemas

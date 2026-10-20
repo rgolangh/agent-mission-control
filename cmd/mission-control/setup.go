@@ -48,8 +48,12 @@ func installFlags(name string, args []string) (install.Options, error) {
 	dry := fs.Bool("dry-run", false, "show what would change, change nothing")
 	force := fs.Bool("force", false, "overwrite (or remove) files not written by mission-control, or changed since")
 	enable := fs.Bool("enable", false, "also run the commands that change other tools' settings (enable the shell extension, place the bar widget)")
+	hyprlandKeybind := false
+	if name == "install" {
+		fs.BoolVar(&hyprlandKeybind, "hyprland-keybind", false, "add the Super+Alt+M Quickshell shortcut to the Omarchy/Hyprland config")
+	}
 	_ = fs.Parse(args)
-	opt := install.Options{DryRun: *dry, Force: *force, Enable: *enable}
+	opt := install.Options{DryRun: *dry, Force: *force, Enable: *enable, HyprlandKeybind: hyprlandKeybind}
 	if *only != "" {
 		opt.Only = map[string]bool{}
 		for _, c := range strings.Split(*only, ",") {

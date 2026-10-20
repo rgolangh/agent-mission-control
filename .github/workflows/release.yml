@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: Compile GNOME settings schema
+        run: |
+          sudo apt-get update -q && sudo apt-get install -yq libglib2.0-bin
+          glib-compile-schemas --strict ui/gnome/schemas
       - name: test
         run: go test -race ./...
       - name: build
@@ -32,7 +36,8 @@ jobs:
               -o dist/mission-control-linux-$arch ./cmd/mission-control
           done
           (cd ui/gnome && zip -q ../../dist/mission-control@rgolangh.github.io.shell-extension.zip \
-            metadata.json extension.js client.js model.js stylesheet.css)
+            metadata.json extension.js client.js model.js stylesheet.css \
+            schemas/org.gnome.shell.extensions.mission-control.gschema.xml schemas/gschemas.compiled)
           cd dist && sha256sum mission-control-* *.zip > SHA256SUMS
       - name: publish
         env:

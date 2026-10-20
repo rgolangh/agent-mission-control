@@ -17,6 +17,8 @@ func TestAssetsContainInstallables(t *testing.T) {
 		"ui/gnome/extension.js",
 		"ui/gnome/client.js",
 		"ui/gnome/model.js",
+		"ui/gnome/schemas/org.gnome.shell.extensions.mission-control.gschema.xml",
+		"ui/gnome/schemas/gschemas.compiled",
 	}
 	for _, p := range want {
 		if _, err := fs.Stat(Assets, p); err != nil {
