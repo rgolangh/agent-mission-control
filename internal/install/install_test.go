@@ -13,13 +13,13 @@ import (
 func testEnv(t *testing.T, tools ...string) (Env, *[]string, *bytes.Buffer) {
 	t.Helper()
 	home := t.TempDir()
-	exe := filepath.Join(t.TempDir(), "mission-control")
+	exe := filepath.Join(t.TempDir(), "amc")
 	os.WriteFile(exe, []byte("BINARY v1"), 0o755)
 	assets := fstest.MapFS{
-		"integrations/opencode/mission-control-bridge.js":     {Data: []byte("bridge v1")},
-		"integrations/claude-code/.claude-plugin/plugin.json": {Data: []byte(`{"name":"mission-control"}`)},
-		"integrations/claude-code/hooks/hooks.json":           {Data: []byte(`{"hooks":{}}`)},
-		"ui/omarchy/Widget.qml":                               {Data: []byte("Item {}")},
+		"integrations/opencode/agent-mission-control-bridge.js": {Data: []byte("bridge v1")},
+		"integrations/claude-code/.claude-plugin/plugin.json":   {Data: []byte(`{"name":"agent-mission-control"}`)},
+		"integrations/claude-code/hooks/hooks.json":             {Data: []byte(`{"hooks":{}}`)},
+		"ui/omarchy/Widget.qml":                                 {Data: []byte("Item {}")},
 	}
 	var ran []string
 	out := &bytes.Buffer{}
@@ -49,22 +49,22 @@ func TestInstallDetectedComponentsAndUninstall(t *testing.T) {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	h := e.Home
-	if read(t, filepath.Join(h, ".local/bin/mission-control")) != "BINARY v1" {
+	if read(t, filepath.Join(h, ".local/bin/amc")) != "BINARY v1" {
 		t.Error("binary not installed")
 	}
-	if !strings.Contains(read(t, filepath.Join(h, ".config/systemd/user/mission-control.service")), "ExecStart="+filepath.Join(h, ".local/bin/mission-control")+" serve -discover") {
+	if !strings.Contains(read(t, filepath.Join(h, ".config/systemd/user/agent-mission-control.service")), "ExecStart="+filepath.Join(h, ".local/bin/amc")+" serve -discover") {
 		t.Error("unit should run the installed binary")
 	}
-	if read(t, filepath.Join(h, ".config/opencode/plugins/mission-control-bridge.js")) != "bridge v1" {
+	if read(t, filepath.Join(h, ".config/opencode/plugins/agent-mission-control-bridge.js")) != "bridge v1" {
 		t.Error("opencode plugin")
 	}
-	if read(t, filepath.Join(h, ".claude/skills/mission-control/.claude-plugin/plugin.json")) == "" {
+	if read(t, filepath.Join(h, ".claude/skills/agent-mission-control/.claude-plugin/plugin.json")) == "" {
 		t.Error("claude plugin (dot directory must be included)")
 	}
 	if _, err := os.Stat(filepath.Join(h, ".config/omarchy")); err == nil {
 		t.Error("omarchy was not detected and must not be installed")
 	}
-	if !strings.Contains(strings.Join(*ran, "\n"), "systemctl --user enable mission-control.service") {
+	if !strings.Contains(strings.Join(*ran, "\n"), "systemctl --user enable agent-mission-control.service") {
 		t.Errorf("service not enabled: %v", *ran)
 	}
 
@@ -77,7 +77,7 @@ func TestInstallDetectedComponentsAndUninstall(t *testing.T) {
 	if err := Uninstall(e, Options{}); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{".local/bin/mission-control", ".config/opencode/plugins/mission-control-bridge.js", ".claude/skills/mission-control", ".local/share/mission-control"} {
+	for _, p := range []string{".local/bin/amc", ".config/opencode/plugins/agent-mission-control-bridge.js", ".claude/skills/agent-mission-control", ".local/share/agent-mission-control"} {
 		if _, err := os.Stat(filepath.Join(h, p)); err == nil {
 			t.Errorf("%s left behind", p)
 		}
@@ -89,7 +89,7 @@ func TestInstallDetectedComponentsAndUninstall(t *testing.T) {
 
 func TestInstallRefusesForeignAndModifiedFilesButUpdatesOurs(t *testing.T) {
 	e, _, out := testEnv(t, "opencode")
-	plugin := filepath.Join(e.Home, ".config/opencode/plugins/mission-control-bridge.js")
+	plugin := filepath.Join(e.Home, ".config/opencode/plugins/agent-mission-control-bridge.js")
 	os.MkdirAll(filepath.Dir(plugin), 0o755)
 	os.WriteFile(plugin, []byte("someone else's"), 0o644)
 	if err := Install(e, "v1", Options{}); err == nil || !strings.Contains(err.Error(), "refusing") {
@@ -104,13 +104,13 @@ func TestInstallRefusesForeignAndModifiedFilesButUpdatesOurs(t *testing.T) {
 	}
 
 	// An upgrade replaces our unchanged file...
-	e.Assets.(fstest.MapFS)["integrations/opencode/mission-control-bridge.js"].Data = []byte("bridge v2")
+	e.Assets.(fstest.MapFS)["integrations/opencode/agent-mission-control-bridge.js"].Data = []byte("bridge v2")
 	if err := Install(e, "v2", Options{}); err != nil || read(t, plugin) != "bridge v2" {
 		t.Fatalf("upgrade: %v %q", err, read(t, plugin))
 	}
 	// ...but not one the user edited, unless forced.
 	os.WriteFile(plugin, []byte("my local tweak"), 0o644)
-	e.Assets.(fstest.MapFS)["integrations/opencode/mission-control-bridge.js"].Data = []byte("bridge v3")
+	e.Assets.(fstest.MapFS)["integrations/opencode/agent-mission-control-bridge.js"].Data = []byte("bridge v3")
 	if err := Install(e, "v3", Options{}); err == nil || read(t, plugin) != "my local tweak" {
 		t.Fatalf("modified file must be kept: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestInstallRefusesForeignAndModifiedFilesButUpdatesOurs(t *testing.T) {
 func TestSymlinkedDevSetupIsLeftAlone(t *testing.T) {
 	e, _, _ := testEnv(t, "claude")
 	repo := t.TempDir()
-	link := filepath.Join(e.Home, ".claude/skills/mission-control")
+	link := filepath.Join(e.Home, ".claude/skills/agent-mission-control")
 	os.MkdirAll(filepath.Dir(link), 0o755)
 	os.Symlink(repo, link)
 	// Files under a symlinked directory resolve into the checkout: never write there.
@@ -145,7 +145,7 @@ func TestUninstallNeverDeletesThroughASymlink(t *testing.T) {
 	if err := Install(e, "v1", Options{Only: map[string]bool{"claude-code": true}}); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(e.Home, ".claude/skills/mission-control")
+	dir := filepath.Join(e.Home, ".claude/skills/agent-mission-control")
 	repo := t.TempDir()
 	if err := os.CopyFS(repo, os.DirFS(dir)); err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestUninstallLeavesServiceAloneUnlessItInstalledIt(t *testing.T) {
 	}
 	*ran = nil
 	Uninstall(e, Options{})
-	if !strings.Contains(strings.Join(*ran, "\n"), "systemctl --user disable --now mission-control.service") {
+	if !strings.Contains(strings.Join(*ran, "\n"), "systemctl --user disable --now agent-mission-control.service") {
 		t.Errorf("service installed by us must be stopped: %v", *ran)
 	}
 }

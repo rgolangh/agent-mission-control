@@ -5,11 +5,11 @@
 #
 # What happens:
 #   1. builds the demo binaries and checks it can capture (nothing changed yet)
-#   2. stops your mission-control service and runs the demo daemon in its place
+#   2. stops your agent-mission-control service and runs the demo daemon in its place
 #      (demo-env.sh, DEMO_LIVE=1), so the installed widget shows the story
 #   3. switches to an empty workspace and captures the top-right corner of the
 #      focused monitor while a script plays the take: notifications, then the
-#      panel opens (omarchy-shell mission-control open) and the CLI answers
+#      panel opens (omarchy-shell agent-mission-control open) and the CLI answers
 #      the question, approves the permission and nudges the stuck agent, so
 #      the panel updates live. Hands off: nothing to click.
 #   4. switches back, starts your service again (also on Ctrl-C or failure)
@@ -44,14 +44,14 @@ region=$DEMO_REGION
 grim -g "$region" "$frames/probe.png" # fail now, before anything is changed
 rm "$frames/probe.png"
 
-omarchy-shell mission-control close || {
+omarchy-shell agent-mission-control close || {
   echo "the installed widget has no IPC handler: update it and run 'omarchy restart shell'" >&2
   exit 1
 }
 read -r -p "Ready to record $region (about 35s, you are moved to an empty workspace). Press Enter… "
 
 was_active=0
-systemctl --user is-active --quiet mission-control && was_active=1
+systemctl --user is-active --quiet agent-mission-control && was_active=1
 prev_ws=$(hyprctl activeworkspace -j | jq -r .id)
 cap=
 # workspace switches with Hyprland's Lua dispatch (0.56), else the old form.
@@ -63,7 +63,7 @@ restore() {
   if [ -n "$cap" ]; then kill "$cap" 2>/dev/null || true; wait "$cap" 2>/dev/null || true; fi
   cap=
   "$here/demo-env.sh" stop
-  if [ "$was_active" = 1 ]; then systemctl --user start mission-control; fi
+  if [ "$was_active" = 1 ]; then systemctl --user start agent-mission-control; fi
   was_active=0
   workspace "$prev_ws"
 }
@@ -81,17 +81,17 @@ capture() {
   done
 }
 
-say "stopping your mission-control service (restarted afterwards)"
-if [ "$was_active" = 1 ]; then systemctl --user stop mission-control; fi
+say "stopping your agent-mission-control service (restarted afterwards)"
+if [ "$was_active" = 1 ]; then systemctl --user stop agent-mission-control; fi
 workspace empty
 sleep 0.5
 capture &
 cap=$!
 sleep 2 # a beat of the quiet bar before the agents show up
 DEMO_LIVE=1 DEMO_SKIP_BUILD=1 "$here/demo-env.sh" start >/dev/null
-mc() { "${DEMO_STATE:-/tmp/mc-demo}/bin/mission-control" "$@" >/dev/null; }
+mc() { "${DEMO_STATE:-/tmp/mc-demo}/bin/amc" "$@" >/dev/null; }
 sleep 5 # the agents settle; the bar count and notifications appear
-omarchy-shell mission-control open
+omarchy-shell agent-mission-control open
 sleep 4
 mc answer 9kAuthMw Redis
 sleep 4
@@ -99,7 +99,7 @@ mc answer DepsBmp once
 sleep 4
 mc send SyncTst "Docker is running now, try again"
 sleep 9 # all three finish
-omarchy-shell mission-control close
+omarchy-shell agent-mission-control close
 sleep 2
 restore
 trap - EXIT

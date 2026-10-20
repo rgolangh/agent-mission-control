@@ -257,7 +257,7 @@ type Turn struct {
 }
 
 // TurnsFromFile reads a whole transcript and returns every completed turn,
-// oldest first, for replaying the done/stuck rules (`mission-control judge`).
+// oldest first, for replaying the done/stuck rules (`amc judge`).
 func TurnsFromFile(path string) ([]Turn, error) {
 	entries, err := readTail(path, 1<<40)
 	if err != nil {

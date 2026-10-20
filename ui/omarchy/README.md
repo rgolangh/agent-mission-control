@@ -1,4 +1,4 @@
-# Mission control: omarchy-shell bar widget
+# Agent Mission Control: omarchy-shell bar widget
 
 A bar icon that counts the agent workflows that need you (waiting on an
 answer, stuck or failed; in the theme's urgent color, pulsing while one is
@@ -8,10 +8,10 @@ where you can answer questions and approve permissions with one click, or send
 a finished or stuck agent a follow-up. Running cards show a three-dot Larson
 scanner. A desktop notification fires when an agent starts needing you.
 
-It is a client of the mission-control daemon's HTTP API, so the daemon must be
-running (`mission-control serve -discover`). The daemon's TCP port requires a
+It is a client of the agent-mission-control daemon's HTTP API, so the daemon must be
+running (`amc serve -discover`). The daemon's TCP port requires a
 bearer token, which the widget reads from
-`$XDG_RUNTIME_DIR/mission-control/token` (regenerated on each daemon start;
+`$XDG_RUNTIME_DIR/agent-mission-control/token` (regenerated on each daemon start;
 the widget notices). Agent text is always rendered as plain text, never HTML. It polls `GET /workflows` (every
 2s; every 1s while the panel is open). Answering never changes what the widget
 shows by itself: the next poll shows what the agent actually did.
@@ -19,9 +19,9 @@ shows by itself: the next poll shows what the agent actually did.
 ## Install (development: symlink this directory)
 
 ```bash
-ln -s "$PWD/ui/omarchy" ~/.config/omarchy/plugins/mission-control
+ln -s "$PWD/ui/omarchy" ~/.config/omarchy/plugins/agent-mission-control
 omarchy-shell shell rescanPlugins
-omarchy plugin enable mission-control
+omarchy plugin enable agent-mission-control
 omarchy bar move   # place it in a bar section
 ```
 
@@ -31,7 +31,7 @@ settings): `apiUrl` (default `http://127.0.0.1:4200`), `pollIntervalMs`,
 
 Mouse: left click toggles the panel, right click refreshes. Esc closes it.
 
-IPC: `omarchy-shell mission-control open|close|toggle`, for a keybind or a
+IPC: `omarchy-shell agent-mission-control open|close|toggle`, for a keybind or a
 script (the README demo uses it).
 
 ## Constraints that shaped it

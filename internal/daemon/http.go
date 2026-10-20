@@ -27,7 +27,7 @@ type SendRequest struct {
 }
 
 // Handler exposes the store over HTTP. {id} may be a full workflow ID or a
-// unique suffix of the source ID, as printed by `mission-control status`.
+// unique suffix of the source ID, as printed by `amc status`.
 //
 //	GET  /workflows              all workflows, most recently updated first
 //	GET  /workflows/{id}         one workflow: pending asks and history
@@ -174,7 +174,7 @@ func RequireToken(token string, next http.Handler) http.Handler {
 // DefaultAddr is the daemon's Unix socket, as an address for Dial.
 func DefaultAddr() string { return "unix:" + paths.Socket() }
 
-// Dial resolves a mission-control address: "unix:<path>" (the default) or an
+// Dial resolves an agent-mission-control address: "unix:<path>" (the default) or an
 // http:// base URL, for which the daemon's token is read from its file and
 // sent. It returns the client, the base URL to append paths to, and the
 // Authorization header value ("" for the socket).
@@ -193,7 +193,7 @@ func Dial(addr string) (*http.Client, string, string) {
 	return http.DefaultClient, strings.TrimRight(addr, "/"), auth
 }
 
-// Call performs a request against a mission-control API at addr (see Dial)
+// Call performs a request against an agent-mission-control API at addr (see Dial)
 // and decodes a 2xx JSON body into out (if non-nil). Non-2xx responses become
 // errors carrying the server's message.
 func Call(ctx context.Context, method, addr, path string, body, out any) error {
@@ -222,7 +222,7 @@ func Call(ctx context.Context, method, addr, path string, body, out any) error {
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("mission-control unreachable (is `mission-control serve` running?): %w", err)
+		return fmt.Errorf("agent-mission-control unreachable (is `amc serve` running?): %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {

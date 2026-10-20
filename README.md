@@ -1,10 +1,10 @@
-# mission-control
+# agent-mission-control
 
 One place to see the state of all your coding-agent sessions (who is
 working, who is **waiting on you**, who finished, who is stuck) and to answer
 them without hunting for the right terminal tab.
 
-![mission-control CLI: see which agents need you, read a question, answer it, approve a permission and nudge a stuck agent](docs/demo/cli.gif)
+![agent-mission-control CLI: see which agents need you, read a question, answer it, approve a permission and nudge a stuck agent](docs/demo/cli.gif)
 
 The unit is the **workflow**, not the tool. Every agent session reports into
 one daemon through a small per-tool adapter. The daemon tracks state, works
@@ -45,17 +45,17 @@ Download the binary for your machine from the
 check it, and let it install itself:
 
 ```bash
-curl -LO https://github.com/rgolangh/agent-mission-control/releases/latest/download/mission-control-linux-amd64
+curl -LO https://github.com/rgolangh/agent-mission-control/releases/latest/download/amc-linux-amd64
 curl -LO https://github.com/rgolangh/agent-mission-control/releases/latest/download/SHA256SUMS
 sha256sum --check --ignore-missing SHA256SUMS
-chmod +x mission-control-linux-amd64
-./mission-control-linux-amd64 install --dry-run   # see what it will do
-./mission-control-linux-amd64 install
-mission-control doctor
+chmod +x amc-linux-amd64
+./amc-linux-amd64 install --dry-run   # see what it will do
+./amc-linux-amd64 install
+amc doctor
 ```
 
-Or from source: `CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/mission-control@latest`,
-then `mission-control install`.
+Or from source: `CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.com/rgolangh/agent-mission-control/cmd/amc@latest`,
+then `amc install`.
 
 `install` puts in place, for your user only:
 - the binary, in `~/.local/bin`;
@@ -68,25 +68,25 @@ It only adds files and never edits your existing configuration. It refuses to
 overwrite anything it didn't write (unless `--force`) and leaves symlinks
 alone. Commands that change another tool's settings, like enabling a shell
 extension, are printed for you to run, or run with `--enable`. Use
-`--only opencode,claude-code` to pick components. `mission-control uninstall`
+`--only opencode,claude-code` to pick components. `amc uninstall`
 removes exactly what was installed and unchanged.
 
 ## Use
 
 ```bash
-mission-control status                 # every workflow
-mission-control show <id>              # pending questions + history (<id>: ID column, any unique suffix)
-mission-control answer <id> <choice>   # option label or number; for permissions: once | always | reject
-mission-control send <id> <text...>    # follow-up message to a finished or stuck agent
+amc status                 # every workflow
+amc show <id>              # pending questions + history (<id>: ID column, any unique suffix)
+amc answer <id> <choice>   # option label or number; for permissions: once | always | reject
+amc send <id> <text...>    # follow-up message to a finished or stuck agent
 ```
 
-MCP (e.g. Claude Code): `claude mcp add mission-control -- mission-control mcp`.
+MCP (e.g. Claude Code): `claude mcp add agent-mission-control -- amc mcp`.
 Tools: `list_workflows`, `get_workflow`, `answer_workflow`, `resolve_permission`
 (`once` / `reject` only), `send_to_workflow`.
 
 ## Security
 
-mission-control can approve agent permissions, which run commands as you, so
+agent-mission-control can approve agent permissions, which run commands as you, so
 access is locked to your user:
 - **Unix socket:** the CLI, hooks and MCP use a socket only your user can reach.
 - **Token on TCP:** the widget's TCP port needs a per-start bearer token.

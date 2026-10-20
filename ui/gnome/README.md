@@ -1,4 +1,4 @@
-# Mission control: GNOME Shell extension
+# Agent Mission Control: GNOME Shell extension
 
 A top-bar indicator for GNOME Shell 45 and later:
 - **Indicator:** counts the coding-agent workflows that need you (waiting on
@@ -8,25 +8,25 @@ A top-bar indicator for GNOME Shell 45 and later:
   Running workflows show a three-dot Larson scanner in their cards.
 - **Notifications:** a desktop notification when an agent starts needing you.
 
-It is a thin client of the mission-control daemon. It reads the daemon's
-token from `$XDG_RUNTIME_DIR/mission-control/token` and polls
+It is a thin client of the agent-mission-control daemon. It reads the daemon's
+token from `$XDG_RUNTIME_DIR/agent-mission-control/token` and polls
 `http://127.0.0.1:4200` every 2 seconds. All agent text is shown as plain text,
 never markup.
 
 ## Install
 
-`mission-control install` puts it in
-`~/.local/share/gnome-shell/extensions/mission-control@rgolangh.github.io` when it
+`amc install` puts it in
+`~/.local/share/gnome-shell/extensions/agent-mission-control@rgolangh.github.io` when it
 detects GNOME Shell. Then:
 
 ```bash
-gnome-extensions enable mission-control@rgolangh.github.io
+gnome-extensions enable agent-mission-control@rgolangh.github.io
 ```
 
-(`mission-control install --enable` runs that for you.) On Wayland, GNOME Shell
+(`amc install --enable` runs that for you.) On Wayland, GNOME Shell
 only loads a newly installed extension after you log out and back in.
 
-Each release also has `mission-control@rgolangh.github.io.shell-extension.zip`
+Each release also has `agent-mission-control@rgolangh.github.io.shell-extension.zip`
 for `gnome-extensions install`.
 
 ## Layout

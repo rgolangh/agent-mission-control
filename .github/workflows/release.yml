@@ -29,11 +29,11 @@ jobs:
           for arch in amd64 arm64; do
             CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X main.version=$VERSION" \
-              -o dist/mission-control-linux-$arch ./cmd/mission-control
+              -o dist/amc-linux-$arch ./cmd/amc
           done
-          (cd ui/gnome && zip -q ../../dist/mission-control@rgolangh.github.io.shell-extension.zip \
+          (cd ui/gnome && zip -q ../../dist/agent-mission-control@rgolangh.github.io.shell-extension.zip \
             metadata.json extension.js client.js model.js stylesheet.css)
-          cd dist && sha256sum mission-control-* *.zip > SHA256SUMS
+          cd dist && sha256sum amc-* *.zip > SHA256SUMS
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}

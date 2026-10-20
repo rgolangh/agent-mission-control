@@ -1,4 +1,4 @@
-// Package paths locates mission-control's per-user runtime files. They live
+// Package paths locates agent-mission-control's per-user runtime files. They live
 // in $XDG_RUNTIME_DIR (/run/user/<uid>, mode 0700): only this user can reach
 // them, so the Unix socket and token files need no further authentication,
 // and nobody else can squat the socket before the daemon starts.
@@ -10,14 +10,14 @@ import (
 	"path/filepath"
 )
 
-// RuntimeDir is $XDG_RUNTIME_DIR/mission-control. Without XDG_RUNTIME_DIR
-// (no systemd login session) it falls back to ~/.cache/mission-control/run.
+// RuntimeDir is $XDG_RUNTIME_DIR/agent-mission-control. Without XDG_RUNTIME_DIR
+// (no systemd login session) it falls back to ~/.cache/agent-mission-control/run.
 func RuntimeDir() string {
 	if d := os.Getenv("XDG_RUNTIME_DIR"); d != "" {
-		return filepath.Join(d, "mission-control")
+		return filepath.Join(d, "agent-mission-control")
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".cache", "mission-control", "run")
+	return filepath.Join(home, ".cache", "agent-mission-control", "run")
 }
 
 // Socket is the daemon's Unix socket: CLI, hooks and MCP talk to it.

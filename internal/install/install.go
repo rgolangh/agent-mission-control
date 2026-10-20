@@ -1,11 +1,11 @@
-// Package install puts mission-control and its integrations in place for one
+// Package install puts agent-mission-control and its integrations in place for one
 // user: the binary, a systemd user service, the OpenCode bridge plugin, the
 // Claude Code hooks plugin, and the desktop UI it detects (omarchy-shell
 // widget, GNOME Shell extension). Everything comes from the files embedded in
 // the binary, so the integrations always match the installed version.
 //
 // Rules: install only adds files and never edits an existing configuration
-// file. A file is overwritten only if mission-control wrote it and nobody has
+// file. A file is overwritten only if agent-mission-control wrote it and nobody has
 // changed it since (tracked in a manifest with SHA-256 sums); a symlink is
 // left alone (a development setup linking into a checkout). Commands that
 // would change another tool's settings, such as enabling a shell extension,
@@ -31,7 +31,7 @@ import (
 type Env struct {
 	Home   string                                  // $HOME
 	Exe    string                                  // the running binary
-	Assets fs.FS                                   // missioncontrol.Assets
+	Assets fs.FS                                   // agentmissioncontrol.Assets
 	Look   func(cmd string) bool                   // is cmd on PATH?
 	Run    func(name string, args ...string) error // run a command (systemctl, ...)
 	Out    io.Writer
@@ -46,7 +46,7 @@ type Options struct {
 }
 
 // GNOMEUUID is the GNOME Shell extension's UUID (its directory name).
-const GNOMEUUID = "mission-control@rgolangh.github.io"
+const GNOMEUUID = "agent-mission-control@rgolangh.github.io"
 
 // File is one file to write.
 type File struct {
@@ -67,19 +67,19 @@ type Component struct {
 }
 
 func (e Env) binDir() string  { return filepath.Join(e.Home, ".local", "bin") }
-func (e Env) BinPath() string { return filepath.Join(e.binDir(), "mission-control") }
+func (e Env) BinPath() string { return filepath.Join(e.binDir(), "amc") }
 func (e Env) unitPath() string {
-	return filepath.Join(e.Home, ".config", "systemd", "user", "mission-control.service")
+	return filepath.Join(e.Home, ".config", "systemd", "user", "agent-mission-control.service")
 }
 func (e Env) ManifestPath() string {
-	return filepath.Join(e.Home, ".local", "share", "mission-control", "install.json")
+	return filepath.Join(e.Home, ".local", "share", "agent-mission-control", "install.json")
 }
 
 // Unit is the systemd user service, pointing at the installed binary.
 func (e Env) Unit() []byte {
-	return []byte(`# Written by mission-control install; reinstalling replaces it.
+	return []byte(`# Written by amc install; reinstalling replaces it.
 [Unit]
-Description=mission-control: agent workflow state daemon
+Description=agent-mission-control: agent workflow state daemon
 Documentation=https://github.com/rgolangh/agent-mission-control
 
 [Service]
@@ -107,14 +107,14 @@ func Plan(e Env) ([]Component, error) {
 	core.Files = append(core.Files, File{e.unitPath(), e.Unit(), 0o644})
 	core.Post = [][]string{
 		{"systemctl", "--user", "daemon-reload"},
-		{"systemctl", "--user", "enable", "mission-control.service"},
-		{"systemctl", "--user", "restart", "mission-control.service"},
+		{"systemctl", "--user", "enable", "agent-mission-control.service"},
+		{"systemctl", "--user", "restart", "agent-mission-control.service"},
 	}
 	comps = append(comps, core)
 
 	oc := Component{Name: "opencode"}
 	oc.Detected, oc.Why = detect(e, "opencode", filepath.Join(e.Home, ".config", "opencode"))
-	if f, err := assetFiles(e.Assets, "integrations/opencode", filepath.Join(e.Home, ".config", "opencode", "plugins"), "mission-control-bridge.js"); err == nil {
+	if f, err := assetFiles(e.Assets, "integrations/opencode", filepath.Join(e.Home, ".config", "opencode", "plugins"), "agent-mission-control-bridge.js"); err == nil {
 		oc.Files = f
 	} else {
 		return nil, err
@@ -124,23 +124,23 @@ func Plan(e Env) ([]Component, error) {
 
 	cc := Component{Name: "claude-code"}
 	cc.Detected, cc.Why = detect(e, "claude", filepath.Join(e.Home, ".claude"))
-	if f, err := assetFiles(e.Assets, "integrations/claude-code", filepath.Join(e.Home, ".claude", "skills", "mission-control")); err == nil {
+	if f, err := assetFiles(e.Assets, "integrations/claude-code", filepath.Join(e.Home, ".claude", "skills", "agent-mission-control")); err == nil {
 		cc.Files = f
 	} else {
 		return nil, err
 	}
-	cc.Notes = []string{"Loads in new Claude Code sessions as mission-control@skills-dir (run /reload-plugins in open ones)."}
+	cc.Notes = []string{"Loads in new Claude Code sessions as agent-mission-control@skills-dir (run /reload-plugins in open ones)."}
 	comps = append(comps, cc)
 
 	om := Component{Name: "omarchy"}
 	om.Detected, om.Why = detect(e, "omarchy-shell", "")
-	if f, err := assetFiles(e.Assets, "ui/omarchy", filepath.Join(e.Home, ".config", "omarchy", "plugins", "mission-control")); err == nil {
+	if f, err := assetFiles(e.Assets, "ui/omarchy", filepath.Join(e.Home, ".config", "omarchy", "plugins", "agent-mission-control")); err == nil {
 		om.Files = f
 	} else {
 		return nil, err
 	}
 	om.Post = [][]string{{"omarchy-shell", "-q", "shell", "rescanPlugins"}}
-	om.Enable = [][]string{{"omarchy", "plugin", "enable", "mission-control"}}
+	om.Enable = [][]string{{"omarchy", "plugin", "enable", "agent-mission-control"}}
 	comps = append(comps, om)
 
 	gn := Component{Name: "gnome"}
@@ -326,7 +326,7 @@ func Install(e Env, version string, opt Options) error {
 		}
 	}
 	if len(blocked) > 0 {
-		return fmt.Errorf("refusing to overwrite %d file(s) not written by mission-control or changed since (use --force): %s",
+		return fmt.Errorf("refusing to overwrite %d file(s) not written by agent-mission-control or changed since (use --force): %s",
 			len(blocked), strings.Join(blocked, ", "))
 	}
 	if opt.DryRun {
@@ -384,14 +384,14 @@ func Install(e Env, version string, opt Options) error {
 func Uninstall(e Env, opt Options) error {
 	m := e.LoadManifest()
 	if len(m.Files) == 0 {
-		fmt.Fprintln(e.Out, "nothing installed by mission-control install")
+		fmt.Fprintln(e.Out, "nothing installed by amc install")
 		return nil
 	}
 	// Only touch the service if install put it there: an uninstall of, say,
 	// just the GNOME extension must not stop a daemon set up some other way.
 	_, ownsUnit := m.Files[e.unitPath()]
 	if ownsUnit && !opt.DryRun && e.Look != nil && e.Look("systemctl") {
-		_ = e.Run("systemctl", "--user", "disable", "--now", "mission-control.service")
+		_ = e.Run("systemctl", "--user", "disable", "--now", "agent-mission-control.service")
 	}
 	paths := make([]string, 0, len(m.Files))
 	for p := range m.Files {

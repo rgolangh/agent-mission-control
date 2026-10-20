@@ -1,18 +1,18 @@
 {
   "schemaVersion": 1,
-  "id": "mission-control",
-  "name": "Mission control",
+  "id": "agent-mission-control",
+  "name": "Agent Mission Control",
   "version": "0.1.0",
-  "author": "mission-control",
+  "author": "agent-mission-control",
   "license": "Apache-2.0",
-  "description": "State of your coding-agent workflows from the mission-control daemon: who is working, who is waiting on you, and answer them from the bar.",
+  "description": "State of your coding-agent workflows from the agent-mission-control daemon: who is working, who is waiting on you, and answer them from the bar.",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Widget.qml" },
   "barWidget": {
-    "displayName": "Mission control",
+    "displayName": "Agent Mission Control",
     "description": "One bar icon that counts workflows waiting on you, and a panel to answer them.",
     "category": "AI",
-    "aliases": ["mission-control", "workflows", "agents-state"],
+    "aliases": ["agent-mission-control", "workflows", "agents-state"],
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
@@ -22,7 +22,7 @@
       "hideWhenDown": false
     },
     "schema": [
-      { "key": "apiUrl", "type": "string", "label": "Daemon API URL", "defaultValue": "http://127.0.0.1:4200", "description": "Where `mission-control serve` listens." },
+      { "key": "apiUrl", "type": "string", "label": "Daemon API URL", "defaultValue": "http://127.0.0.1:4200", "description": "Where `amc serve` listens." },
       { "key": "pollIntervalMs", "type": "integer", "label": "Poll interval (ms)", "min": 500, "max": 60000, "step": 500, "defaultValue": 2000 },
       { "key": "notify", "type": "boolean", "label": "Notify when an agent needs you", "defaultValue": true },
       { "key": "hideWhenDown", "type": "boolean", "label": "Hide while the daemon is not running", "defaultValue": false }

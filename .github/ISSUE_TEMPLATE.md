@@ -5,7 +5,7 @@ feedback. Please redact secrets and do not attach raw agent transcripts/logs.
 
 ## Setup
 
-- mission-control version (`mission-control version`):
+- amc version (`amc version`):
 - Linux distribution/version:
 - Desktop/shell (GNOME, Omarchy, other):
 - Agent tools and versions (OpenCode, Claude Code):

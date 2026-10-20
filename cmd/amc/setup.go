@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	missioncontrol "github.com/rgolangh/agent-mission-control"
+	agentmissioncontrol "github.com/rgolangh/agent-mission-control"
 	"github.com/rgolangh/agent-mission-control/internal/daemon"
 	"github.com/rgolangh/agent-mission-control/internal/install"
 	"github.com/rgolangh/agent-mission-control/internal/paths"
@@ -31,7 +31,7 @@ func installEnv() (install.Env, error) {
 	return install.Env{
 		Home:   home,
 		Exe:    exe,
-		Assets: missioncontrol.Assets,
+		Assets: agentmissioncontrol.Assets,
 		Out:    os.Stdout,
 		Look:   func(c string) bool { _, err := exec.LookPath(c); return err == nil },
 		Run: func(name string, args ...string) error {
@@ -46,7 +46,7 @@ func installFlags(name string, args []string) (install.Options, error) {
 	fs := flag.NewFlagSet(name, flag.ExitOnError)
 	only := fs.String("only", "", "comma-separated components (daemon,opencode,claude-code,omarchy,gnome); default: everything detected")
 	dry := fs.Bool("dry-run", false, "show what would change, change nothing")
-	force := fs.Bool("force", false, "overwrite (or remove) files not written by mission-control, or changed since")
+	force := fs.Bool("force", false, "overwrite (or remove) files not written by agent-mission-control, or changed since")
 	enable := fs.Bool("enable", false, "also run the commands that change other tools' settings (enable the shell extension, place the bar widget)")
 	_ = fs.Parse(args)
 	opt := install.Options{DryRun: *dry, Force: *force, Enable: *enable}
@@ -69,7 +69,7 @@ func installCmd(args []string) error {
 		return err
 	}
 	if !opt.DryRun {
-		fmt.Println("\ndone. Check everything with: mission-control doctor")
+		fmt.Println("\ndone. Check everything with: amc doctor")
 	}
 	return nil
 }
@@ -84,7 +84,7 @@ func uninstallCmd(args []string) error {
 }
 
 func versionCmd([]string) error {
-	fmt.Println("mission-control", version)
+	fmt.Println("amc", version)
 	return nil
 }
 
@@ -105,21 +105,21 @@ func doctor([]string) error {
 	}
 	note := func(what string) { fmt.Printf("  --    %s\n", what) }
 
-	fmt.Printf("mission-control %s\n\n", version)
+	fmt.Printf("amc %s\n\n", version)
 
 	fmt.Println("daemon")
-	onPath, _ := exec.LookPath("mission-control")
-	check(onPath != "", "mission-control is on PATH ("+orDash(onPath)+")", "add ~/.local/bin to PATH (hooks run `mission-control` by name)")
+	onPath, _ := exec.LookPath("amc")
+	check(onPath != "", "amc is on PATH ("+orDash(onPath)+")", "add ~/.local/bin to PATH (hooks run `amc` by name)")
 	check(os.Getenv("XDG_RUNTIME_DIR") != "", "XDG_RUNTIME_DIR is set", "log in through systemd-logind (a normal desktop session); otherwise the socket lives in "+paths.RuntimeDir())
-	active := exec.Command("systemctl", "--user", "is-active", "--quiet", "mission-control.service").Run() == nil
-	check(active, "service mission-control.service is running", "mission-control install, or: systemctl --user enable --now mission-control")
+	active := exec.Command("systemctl", "--user", "is-active", "--quiet", "agent-mission-control.service").Run() == nil
+	check(active, "service agent-mission-control.service is running", "amc install, or: systemctl --user enable --now agent-mission-control")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	health := map[string]any{}
 	err = daemon.Call(ctx, http.MethodGet, daemon.DefaultAddr(), "/healthz", nil, &health)
-	check(err == nil, "API answers on "+paths.Socket(), "is the service running? journalctl --user -u mission-control")
+	check(err == nil, "API answers on "+paths.Socket(), "is the service running? journalctl --user -u agent-mission-control.service")
 	if v, ok := health["version"].(string); ok {
-		check(v == version, "running daemon is this version ("+v+")", "systemctl --user restart mission-control")
+		check(v == version, "running daemon is this version ("+v+")", "systemctl --user restart agent-mission-control.service")
 	}
 	if _, err := paths.ReadSecret(paths.Token()); err == nil {
 		note("TCP token present and private (for the desktop widget)")
@@ -149,9 +149,9 @@ func doctor([]string) error {
 		case !c.Detected && states[install.Missing] == len(c.Files):
 			note(c.Name + ": not installed (" + c.Why + ")")
 		case states[install.Missing] == len(c.Files):
-			check(false, c.Name+": not installed ("+c.Why+")", "mission-control install --only "+c.Name)
+			check(false, c.Name+": not installed ("+c.Why+")", "amc install --only "+c.Name)
 		default:
-			check(false, c.Name+": installed files differ from this version", "mission-control install (or --force if you changed them)")
+			check(false, c.Name+": installed files differ from this version", "amc install (or --force if you changed them)")
 		}
 	}
 

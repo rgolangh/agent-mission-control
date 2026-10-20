@@ -1,4 +1,4 @@
-// Package daemon holds mission-control's own state: the current status of
+// Package daemon holds agent-mission-control's own state: the current status of
 // every workflow, fed by normalized events from the adapters, plus the HTTP
 // surface that exposes it. Adapters never import this package.
 package daemon
@@ -498,7 +498,7 @@ func (s *Store) EndSync(origin string, now time.Time) {
 		}
 		if w.Status == adapter.StatusRunning || w.Status == adapter.StatusNeedsInput {
 			w.Pending = nil
-			w.transition(adapter.StatusDone, "no longer active (stopped while mission-control was disconnected)", now)
+			w.transition(adapter.StatusDone, "no longer active (stopped while agent-mission-control was disconnected)", now)
 		}
 	}
 }

@@ -25,7 +25,7 @@ func show(args []string) error {
 	asJSON := fs.Bool("json", false, "print raw JSON")
 	pos := parseFlags(fs, args)
 	if len(pos) != 1 {
-		return fmt.Errorf("usage: mission-control show [-addr URL] [-json] <id>")
+		return fmt.Errorf("usage: amc show [-addr URL] [-json] <id>")
 	}
 	wf, err := daemon.FetchWorkflow(context.Background(), *addr, pos[0])
 	if err != nil {
@@ -67,7 +67,7 @@ func show(args []string) error {
 				fmt.Println("    (or type your own answer)")
 			}
 			if i == 0 && len(a.Questions) == 1 {
-				fmt.Printf("  answer with: mission-control answer %s <choice>\n", shortID(wf.SourceID))
+				fmt.Printf("  answer with: amc answer %s <choice>\n", shortID(wf.SourceID))
 			}
 		}
 		if len(a.Questions) > 1 {
@@ -92,7 +92,7 @@ func answer(args []string) error {
 	askID := fs.String("ask", "", "ask ID, only needed when several asks are pending")
 	pos := parseFlags(fs, args)
 	if len(pos) < 2 {
-		return fmt.Errorf("usage: mission-control answer [-addr URL] [-ask ID] <id> <choice>")
+		return fmt.Errorf("usage: amc answer [-addr URL] [-ask ID] <id> <choice>")
 	}
 	ref, choice := pos[0], strings.Join(pos[1:], " ")
 
@@ -109,7 +109,7 @@ func answer(args []string) error {
 		fmt.Printf("confirmed: now %s — %s\n", wf.Status, wf.Message)
 		return nil
 	}
-	fmt.Println("delivered, but no confirmation from the source yet; check `mission-control show`")
+	fmt.Println("delivered, but no confirmation from the source yet; check `amc show`")
 	return nil
 }
 
@@ -118,7 +118,7 @@ func send(args []string) error {
 	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	pos := parseFlags(fs, args)
 	if len(pos) < 2 {
-		return fmt.Errorf("usage: mission-control send [-addr URL] <id> <text...>")
+		return fmt.Errorf("usage: amc send [-addr URL] <id> <text...>")
 	}
 	if err := daemon.PostSend(context.Background(), *addr, pos[0], strings.Join(pos[1:], " ")); err != nil {
 		return err

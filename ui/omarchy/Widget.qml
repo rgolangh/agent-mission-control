@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Hyprland
 import Quickshell.Io
 
-// Mission control bar widget for omarchy-shell: a bar icon that counts the
+// Agent Mission Control bar widget for omarchy-shell: a bar icon that counts the
 // workflows waiting on you, and a panel listing every workflow with inline
 // answers. Self-contained on purpose: it uses only QtQuick, Quickshell and
 // the injected `bar` facade (colors, font, run, popout coordination), not
@@ -42,11 +42,11 @@ Item {
   function close() { opened = false }
   function toggle() { opened = !opened }
 
-  // `omarchy-shell mission-control toggle` (e.g. from a Hyprland keybind),
+  // `omarchy-shell agent-mission-control toggle` (e.g. from a Hyprland keybind),
   // like the shell's own widgets. With a bar on several monitors the last
   // one loaded gets the target.
   IpcHandler {
-    target: "mission-control"
+    target: "agent-mission-control"
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
@@ -55,7 +55,7 @@ Item {
   // The daemon writes a fresh token on every start; only this user can read it.
   FileView {
     id: tokenFile
-    path: (Quickshell.env("XDG_RUNTIME_DIR") || "") + "/mission-control/token"
+    path: (Quickshell.env("XDG_RUNTIME_DIR") || "") + "/agent-mission-control/token"
     watchChanges: true
     onFileChanged: reload()
   }
@@ -75,7 +75,7 @@ Item {
       var icon = workflow.status === "needs_input" ? "dialog-question" : "dialog-warning"
       // argv, not a shell string, and markup escaped: titles and questions
       // come from agents, and notification bodies may be rendered as markup.
-      Quickshell.execDetached(["notify-send", "-a", "Mission control", "-i", icon,
+      Quickshell.execDetached(["notify-send", "-a", "Agent Mission Control", "-i", icon,
         root.escapeMarkup(heading + ": " + title), root.escapeMarkup(String(body || ""))])
     }
   }
@@ -287,7 +287,7 @@ Item {
       if (mouse.button === Qt.RightButton) api.refresh()
       else root.toggle()
     }
-    onEntered: if (root.bar && !root.opened) root.bar.showTooltip(root, "Mission control: " + root.summary)
+    onEntered: if (root.bar && !root.opened) root.bar.showTooltip(root, "Agent Mission Control: " + root.summary)
     onExited: if (root.bar) root.bar.hideTooltip(root)
   }
 
@@ -359,7 +359,7 @@ Item {
 
         Text {
           textFormat: Text.PlainText // agent text: never HTML
-          text: "Mission control"
+          text: "Agent Mission Control"
           color: root.fg
           font.family: root.fontFamily
           font.pixelSize: 15
@@ -397,7 +397,7 @@ Item {
             textFormat: Text.PlainText // agent text: never HTML
             visible: api.reachable && api.workflows.length === 0
             width: parent.width
-            text: "No workflows yet. Start an agent with `opencode --port N` and `mission-control serve -discover`."
+            text: "No workflows yet. Start an agent with `opencode --port N` and `amc serve -discover`."
             wrapMode: Text.Wrap
             color: root.dim
             font.family: root.fontFamily
@@ -408,7 +408,7 @@ Item {
             textFormat: Text.PlainText // agent text: never HTML
             visible: api.loaded && !api.reachable
             width: parent.width
-            text: "Start the daemon: mission-control serve -discover\n(looking for it at " + api.baseUrl + ")"
+            text: "Start the daemon: amc serve -discover\n(looking for it at " + api.baseUrl + ")"
             wrapMode: Text.Wrap
             color: root.dim
             font.family: root.fontFamily

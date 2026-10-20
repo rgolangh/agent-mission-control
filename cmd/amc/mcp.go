@@ -16,7 +16,7 @@ import (
 	"github.com/rgolangh/agent-mission-control/internal/mcp"
 )
 
-const mcpInstructions = `mission-control tracks the state of the user's coding-agent workflows (e.g. OpenCode sessions in terminal tabs) and can push input back into them.
+const mcpInstructions = `agent-mission-control tracks the state of the user's coding-agent workflows (e.g. OpenCode sessions in terminal tabs) and can push input back into them.
 
 - list_workflows gives every workflow's status: running, needs_input (blocked on the user: see its pending asks), stuck, done, failed. "stale" means the source is unreachable: the state is last-known and input will be refused.
 - To unblock a workflow in needs_input, call answer_workflow with one of the pending question's options. Permission requests (the agent wants to run a command, edit a file, ...) are handled only by resolve_permission, with once or reject; "always" is deliberately not available here. Approving runs whatever the agent asked to run, so only approve what the user would.
@@ -25,7 +25,7 @@ const mcpInstructions = `mission-control tracks the state of the user's coding-a
 - Workflow ids: the full id, or a unique suffix (>= 4 chars) of the source id, e.g. the short_id field.`
 
 // mcpServe runs an MCP server on stdin/stdout that proxies to a running
-// mission-control daemon. The daemon stays the only owner of state and of the
+// agent-mission-control daemon. The daemon stays the only owner of state and of the
 // adapter connections; this process is a thin, stateless translator.
 func mcpServe(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ExitOnError)
@@ -36,7 +36,7 @@ func mcpServe(args []string) error {
 	defer stop()
 
 	srv := &mcp.Server{
-		Name:         "mission-control",
+		Name:         "agent-mission-control",
 		Version:      "0.1.0",
 		Instructions: mcpInstructions,
 		Tools:        mcpTools(*addr),

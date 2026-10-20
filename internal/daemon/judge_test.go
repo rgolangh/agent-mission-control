@@ -87,7 +87,7 @@ func TestJudge(t *testing.T) {
 }
 
 // Real closing text of turns this project's own development session
-// misjudged (2026-10-14 replay with `mission-control judge -all`), trimmed.
+// misjudged (2026-10-14 replay with `amc judge -all`), trimmed.
 // Long, structured messages (headline, lists, questions inside list items)
 // are how capable agents write, and what the first rules missed.
 func TestJudgeRealStructuredMessages(t *testing.T) {

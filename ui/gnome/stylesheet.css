@@ -1,38 +1,38 @@
-.mission-control-count {
+.agent-mission-control-count {
   padding-left: 4px;
   font-weight: bold;
 }
 
-.mission-control-attention {
+.agent-mission-control-attention {
   color: #ff7b63;
 }
 
-.mission-control-menu {
+.agent-mission-control-menu {
   min-width: 29em;
 }
 
-.mission-control-header {
+.agent-mission-control-header {
   min-width: 29em;
   padding: 8px 12px 10px;
 }
 
-.mission-control-header-title {
+.agent-mission-control-header-title {
   font-weight: bold;
   font-size: 1.05em;
 }
 
-.mission-control-header-summary {
+.agent-mission-control-header-summary {
   color: #a6adc8;
   font-size: 0.85em;
 }
 
-.mission-control-dim,
-.mission-control-card-location,
-.mission-control-card-secondary {
+.agent-mission-control-dim,
+.agent-mission-control-card-location,
+.agent-mission-control-card-secondary {
   color: #a6adc8;
 }
 
-.mission-control-card {
+.agent-mission-control-card {
   min-width: 29em;
   margin: 4px 8px;
   padding: 9px 10px;
@@ -41,88 +41,88 @@
   background-color: rgba(205, 214, 244, 0.045);
 }
 
-.mission-control-card:hover {
+.agent-mission-control-card:hover {
   background-color: rgba(205, 214, 244, 0.08);
 }
 
-.mission-control-card-attention {
+.agent-mission-control-card-attention {
   border-color: rgba(224, 108, 117, 0.42);
   background-color: rgba(224, 108, 117, 0.09);
 }
 
-.mission-control-card-content {
+.agent-mission-control-card-content {
   spacing: 5px;
 }
 
-.mission-control-card-heading {
+.agent-mission-control-card-heading {
   spacing: 7px;
 }
 
-.mission-control-card-title {
+.agent-mission-control-card-title {
   font-weight: bold;
 }
 
-.mission-control-card-status,
-.mission-control-card-location {
+.agent-mission-control-card-status,
+.agent-mission-control-card-location {
   font-size: 0.82em;
 }
 
-.mission-control-status-needs-input,
-.mission-control-status-stuck,
-.mission-control-status-failed,
-.mission-control-choice-reject {
+.agent-mission-control-status-needs-input,
+.agent-mission-control-status-stuck,
+.agent-mission-control-status-failed,
+.agent-mission-control-choice-reject {
   color: #e06c75;
 }
 
-.mission-control-status-running {
+.agent-mission-control-status-running {
   color: #d8dee9;
 }
 
-.mission-control-running-dots {
+.agent-mission-control-running-dots {
   min-width: 2.5em;
   font-family: monospace;
   font-weight: bold;
 }
 
-.mission-control-status-done {
+.agent-mission-control-status-done {
   color: #a6adc8;
 }
 
-.mission-control-card-question {
+.agent-mission-control-card-question {
   font-weight: 500;
 }
 
-.mission-control-choices {
+.agent-mission-control-choices {
   spacing: 6px;
 }
 
-.mission-control-choice {
+.agent-mission-control-choice {
   padding: 4px 9px;
   border: 1px solid rgba(205, 214, 244, 0.2);
   border-radius: 6px;
   background-color: rgba(205, 214, 244, 0.08);
 }
 
-.mission-control-choice:hover,
-.mission-control-choice-selected {
+.agent-mission-control-choice:hover,
+.agent-mission-control-choice-selected {
   background-color: rgba(205, 214, 244, 0.2);
 }
 
-.mission-control-choice-reject {
+.agent-mission-control-choice-reject {
   border-color: rgba(224, 108, 117, 0.55);
 }
 
-.mission-control-choice:insensitive {
+.agent-mission-control-choice:insensitive {
   opacity: 0.5;
 }
 
-.mission-control-terminal {
+.agent-mission-control-terminal {
   padding: 3px 6px;
   border-radius: 5px;
   background-color: rgba(205, 214, 244, 0.08);
 }
 
-.mission-control-entry {
+.agent-mission-control-entry {
   min-width: 26em;
   padding: 6px 8px;
   border: 1px solid rgba(205, 214, 244, 0.12);
