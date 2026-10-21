@@ -60,6 +60,11 @@ git tag v0.2.0 && git push origin main v0.2.0
 4. **release**: one GitHub release with everything and a fresh `SHA256SUMS`.
 5. **omarchy-plugin**: mirrors `ui/omarchy` (see below), if configured.
 
+Pull requests touching `packaging/`, `.copr/`, `release.yml` or `go.mod`
+(and manual runs) run build, arch and rpm at the version in the files, so
+packaging breakage shows up before a tag. Only tags run release and
+omarchy-plugin.
+
 Release assets (`X.Y.Z` = tag without `v`):
 
 | Asset | |

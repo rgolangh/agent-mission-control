@@ -4,20 +4,31 @@ name: release
 # binaries, tarballs, source, the GNOME extension zip, Arch packages, RPMs,
 # the updated AUR files and SHA256SUMS. See packaging/README.md.
 
+# Pull requests that touch packaging (and manual runs) build and test every
+# package the same way, at the version in the files, but publish nothing:
+# release and omarchy-plugin run for tags only.
 on:
   push:
     tags: ["v*"]
+  pull_request:
+    paths:
+      - packaging/**
+      - .copr/**
+      - .github/workflows/release.yml
+      - go.mod
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  VERSION: ${{ github.ref_name }}
   FEDORA: "45" # golang >= 1.27 (go.mod); bump with Fedora releases
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -25,12 +36,18 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: versions match the tag
-        run: packaging/version.sh check "$VERSION"
+      - name: version
+        id: version
+        env:
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+        run: |
+          v=${TAG:-v$(packaging/version.sh show | head -n1)}
+          packaging/version.sh check "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
       - name: test
         run: go test -race ./...
       - name: build
-        run: packaging/dist.sh "$VERSION"
+        run: packaging/dist.sh "${{ steps.version.outputs.version }}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
@@ -41,6 +58,8 @@ jobs:
   # so every release also proves the PKGBUILD still builds.
   arch:
     needs: build
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -75,6 +94,8 @@ jobs:
   # from source, like COPR does).
   rpm:
     needs: build
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
     strategy:
       matrix:
         runner: [ubuntu-latest, ubuntu-24.04-arm]
@@ -107,6 +128,9 @@ jobs:
 
   release:
     needs: [build, arch, rpm]
+    if: startsWith(github.ref, 'refs/tags/')
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the release; nothing else
@@ -132,6 +156,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     env:
+      VERSION: ${{ github.ref_name }} # tags only (needs release)
       DEPLOY_KEY: ${{ secrets.OMARCHY_PLUGIN_DEPLOY_KEY }}
       MIRROR: ${{ vars.OMARCHY_PLUGIN_REPO || 'rgolangh/omarchy-agent-mission-control' }}
     steps:
