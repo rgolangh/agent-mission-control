@@ -61,7 +61,7 @@ itself, it only checks that the files match the tag.
 3. **rpm**: in `fedora:$FEDORA` on an x86_64 and an arm64 runner, `rpmbuild -ba`
    from the source tarball (rpmlint output in the log, not fatal).
 4. **release**: one GitHub release with everything and a fresh `SHA256SUMS`.
-5. **omarchy-plugin**: mirrors `ui/omarchy` (see below), if configured.
+5. **omarchy-plugin**: mirrors `ui/omarchy` (see below); not set up, so it only prints a notice.
 
 Pull requests touching `packaging/`, `.copr/`, `release.yml` or `go.mod`
 (and manual runs) run build, arch and rpm at the version in the files, so
@@ -124,7 +124,7 @@ Arch has (go.mod's `toolchain go1.27.2` is a preference, not a requirement).
 
 One-time:
 
-1. Log in at <https://copr.fedorainfracloud.org> (Fedora account), create
+1. Log in at <https://copr.fedorainfracloud.org> (Fedora account `rgolan`), create
    project `agent-mission-control` with chroots `fedora-45-x86_64`,
    `fedora-45-aarch64`, `fedora-rawhide-*` (needs `golang >= 1.27`: Fedora
    44's Go is too old for `go 1.27` in go.mod).
@@ -141,11 +141,16 @@ Manual alternative per release: `copr-cli build agent-mission-control
 agent-mission-control-0.2.0-1.fc45.src.rpm` with the SRPM from the release
 (needs `~/.config/copr` from <https://copr.fedorainfracloud.org/api/>).
 
-Users: `sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control`.
+Users: `sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control`.
 The GNOME extension subpackage comes in through a weak dependency when
 `gnome-shell` is installed.
 
-## Omarchy plugin mirror
+## Omarchy plugin mirror (not set up)
+
+Dropped for now: the widget needs the daemon anyway, and `amc install`
+puts it in place at the daemon's version, so a second install route adds
+nothing yet. The job stays in the workflow, inert, in case it is wanted
+later (e.g. to be listed in an Omarchy plugin directory).
 
 `omarchy plugin add <git-url>` wants `manifest.json` at the repository root,
 so the release workflow's `omarchy-plugin` job pushes

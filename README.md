@@ -50,10 +50,11 @@ The package puts `amc` in `/usr/bin`, a systemd user service in
 (maintainers: [packaging/README.md](packaging/README.md)):
 
 ```bash
-# Arch / Omarchy (AUR): agent-mission-control-bin (release binary) or agent-mission-control (builds from source)
-yay -S agent-mission-control-bin
+# Arch / Omarchy: the release's package (aarch64: swap x86_64 for aarch64).
+# The AUR package agent-mission-control-bin is coming (AUR sign-ups are closed for now).
+sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 # Fedora (COPR)
-sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control
+sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control
 
 amc install --enable   # enable the service, add the agent integrations and desktop UI
 amc doctor
@@ -68,11 +69,8 @@ would shadow them). After a package upgrade, run `amc install` again to
 refresh the per-user integrations, and `systemctl --user restart
 agent-mission-control` (the RPM restarts it for you).
 
-On Omarchy, `amc install` also puts the bar widget in place. The widget is
-also published for `omarchy plugin add
-https://github.com/rgolangh/omarchy-agent-mission-control`; use one or the
-other ([details](ui/omarchy/README.md#install)). `amc install` is
-recommended: it keeps the widget at the daemon's version.
+On Omarchy, `amc install` also puts the bar widget in place, at the
+daemon's version ([details](ui/omarchy/README.md#install)).
 
 ### From the release binary
 

@@ -28,18 +28,16 @@ daemon's socket.
 ## Install
 
 Install the daemon first ([agent-mission-control](https://github.com/rgolangh/agent-mission-control):
-the AUR package `agent-mission-control-bin`, or the release binary). Then
-either:
+the `.pkg.tar.zst` from the [latest release](https://github.com/rgolangh/agent-mission-control/releases/latest)
+(`sudo pacman -U <url>`), or the release binary). Then run `amc install
+--enable`: it writes this widget from the files embedded in the `amc`
+binary into `~/.config/omarchy/plugins/agent-mission-control`, so it always
+matches the daemon it talks to, and places it in the bar. After a package
+upgrade, run `amc install` again to update it.
 
-- **`amc install`** (recommended): writes this widget from the files embedded
-  in the `amc` binary, so it always matches the daemon it talks to. After a
-  package upgrade, `amc install` again updates it.
-- **`omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control --enable`**:
-  clones this directory's mirror (released with every daemon release) and
-  updates with `omarchy plugin update`. `amc install` sees the git clone and
-  leaves it to Omarchy. Use one route or the other: both use the directory
-  `~/.config/omarchy/plugins/agent-mission-control`. To switch from
-  `amc install` to `plugin add`, run `amc uninstall` (or remove that directory) first.
+This directory holds only the QML; without the daemon the widget shows how
+to install it. There is no `omarchy plugin add` repository for it for now
+(see `packaging/README.md`, "Omarchy plugin mirror").
 
 ## Install for development (symlink this directory)
 
