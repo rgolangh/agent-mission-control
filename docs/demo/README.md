@@ -17,7 +17,7 @@ nothing private:
 
 ```bash
 docs/demo/record-cli.sh       # -> cli.gif (+ cli.mp4); asciinema 3, agg, ffmpeg
-docs/demo/record-omarchy.sh   # -> omarchy.gif (+ omarchy.mp4); grim, jq, ffmpeg
+docs/demo/record-omarchy.sh   # -> omarchy.gif (+ omarchy.mp4), no longer in the README; grim, jq, ffmpeg
 ```
 
 `record-cli.sh` is unattended: it plays `cli-scene.sh` in a headless
