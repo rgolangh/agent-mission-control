@@ -7,6 +7,10 @@ A top-bar indicator for GNOME Shell 45 and later:
   one click, type a reply or follow-up, or jump to the agent's terminal window.
   Running workflows show a three-dot Larson scanner in their cards.
 - **Notifications:** a desktop notification when an agent starts needing you.
+- **Daemon down:** a dim `✕` in the indicator, and the menu says why (not
+  installed, not set up, stopped, token missing or refused, not answering)
+  with one button: open the releases page, copy `amc install --enable`, or
+  start/restart `agent-mission-control.service`.
 
 It is a thin client of the agent-mission-control daemon. It reads the daemon's
 token from `$XDG_RUNTIME_DIR/agent-mission-control/token` and polls
@@ -33,8 +37,8 @@ for `gnome-extensions install`.
 
 | File | What | Tested by |
 |---|---|---|
-| `model.js` | Pure logic: urgency order, counts, summaries, which workflows newly need you | `gjs -m test/model.test.js` (also in CI) |
-| `client.js` | libsoup 3 client, token handling and re-reading after a daemon restart | `gjs -m test/client.test.js` against a running daemon |
+| `model.js` | Pure logic: urgency order, counts, summaries, which workflows newly need you, why the daemon is down | `gjs -m test/model.test.js` (also in CI) |
+| `client.js` | libsoup 3 client, token handling and re-reading after a daemon restart, on-disk probe while down | `gjs -m test/client.test.js` against a running daemon |
 | `extension.js` | Panel button, menu, notifications, window focusing | GNOME Shell only |
 
 Debug a running copy with `journalctl -f -o cat /usr/bin/gnome-shell`.

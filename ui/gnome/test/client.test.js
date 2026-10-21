@@ -40,6 +40,20 @@ const check = (ok, what) => {
         await none.answer('ses_x', 'q', 'yes');
         squatter.stop();
         check(r3.status === 0 && connections === 0, `no token file: no request at all (${r3.status}, ${connections} connection(s))`);
+        check(r3.token === false && r.token === true, 'results say whether a token was read');
+
+        // probe() only looks at its own paths.
+        none._binPaths = [`${tmp}/amc`];
+        none._unitPaths = [`${tmp}/agent-mission-control.service`];
+        none._socketPath = `${tmp}/api.sock`;
+        const p0 = none.probe();
+        check(!p0.unit && !p0.socket, 'probe: no unit, no socket');
+        GLib.file_set_contents(`${tmp}/agent-mission-control.service`, '');
+        GLib.file_set_contents(`${tmp}/api.sock`, '');
+        const p1 = none.probe();
+        check(p1.unit && p1.socket && p1.url === `http://127.0.0.1:${port}`, 'probe: unit and socket found');
+        GLib.unlink(`${tmp}/agent-mission-control.service`);
+        GLib.unlink(`${tmp}/api.sock`);
         GLib.unlink(`${tmp}/token`);
         GLib.rmdir(tmp);
 

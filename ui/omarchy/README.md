@@ -16,6 +16,15 @@ the widget notices). Agent text is always rendered as plain text, never HTML. It
 2s; every 1s while the panel is open). Answering never changes what the widget
 shows by itself: the next poll shows what the agent actually did.
 
+When the daemon doesn't answer, the count becomes a dim `✕` and the panel
+says why, with one button: `amc` not installed (link to the releases), installed
+but `amc install --enable` never run (copy the command), service stopped
+(`systemctl --user start agent-mission-control.service`), token missing or
+refused, or not answering on its port (restart). It tells these apart from the
+HTTP status, whether the token file exists, and a small `sh` probe (every 10s
+at most, only while down) for the `amc` binary, the systemd unit and the
+daemon's socket.
+
 ## Install
 
 Install the daemon first ([agent-mission-control](https://github.com/rgolangh/agent-mission-control):
@@ -72,3 +81,12 @@ QT_QPA_PLATFORM=offscreen MC_URL=http://127.0.0.1:4200 MC_SHOT=/tmp/panel.png qs
 
 `MC_ANSWER=<choice>` also answers the first pending ask through the widget's
 own API code.
+
+The daemon-down classification (same table as the GNOME `model.js` tests);
+`qs` exits 0 either way, so check the output:
+
+```bash
+QT_QPA_PLATFORM=offscreen MC_TEST=states qs -p ui/omarchy/test 2>&1 | grep 'states: all passed'
+# live, with an empty runtime dir: no token, no socket
+XDG_RUNTIME_DIR=$(mktemp -d) QT_QPA_PLATFORM=offscreen MC_EXPECT_STATE=not-running qs -p ui/omarchy/test
+```

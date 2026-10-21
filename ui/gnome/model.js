@@ -126,3 +126,70 @@ export function clean(text, max = 300) {
     const s = String(text ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u061c\u200b\u200e\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g, '');
     return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
+
+export const SERVICE = 'agent-mission-control.service';
+export const RELEASES = 'https://github.com/rgolangh/agent-mission-control/releases';
+
+// Why the daemon doesn't answer, from what the extension can observe: the
+// HTTP status (0: no token file so no request was made, or nothing
+// answered), whether a token was read, and whether an amc binary, its
+// systemd user unit and the daemon's socket exist. Returns {state, summary,
+// hint, action}; action is {label, kind: 'start'|'restart'|'copy'|'open',
+// arg} or null. Mirrored in ui/omarchy/Api.qml (daemonState).
+export function daemonState({status, token, installed, unit, socket, url, tokenPath}) {
+    const start = `systemctl --user start ${SERVICE}`;
+    const restart = `systemctl --user restart ${SERVICE}`;
+    const logs = `Logs: journalctl --user -u ${SERVICE}`;
+    const restartAction = {label: 'Restart daemon', kind: 'restart', arg: restart};
+    if (status === 200)
+        return {state: 'up', summary: '', hint: '', action: null};
+    if (status === 401) {
+        return {
+            state: 'unauthorized',
+            summary: 'daemon refused the token',
+            hint: `The token in ${tokenPath} doesn't match the daemon at ${url}. Every start writes a fresh one:\n${restart}`,
+            action: restartAction,
+        };
+    }
+    if (status)
+        return {state: 'error', summary: `daemon returned ${status}`, hint: logs, action: restartAction};
+    if (token) {
+        // A daemon started (it wrote the token) but nothing answers on TCP.
+        return {
+            state: 'unreachable',
+            summary: `daemon not answering at ${url}`,
+            hint: `It may have crashed, or listen elsewhere (serve -listen).\n${restart}\n${logs}`,
+            action: restartAction,
+        };
+    }
+    if (socket) {
+        return {
+            state: 'no-token',
+            summary: "can't read the daemon's token",
+            hint: `Expected ${tokenPath} (rewritten on every start, readable only by you). A restart writes it:\n${restart}`,
+            action: restartAction,
+        };
+    }
+    if (!installed && !unit) {
+        return {
+            state: 'not-installed',
+            summary: 'amc is not installed',
+            hint: `Install your distro package or a release from\n${RELEASES}\nthen run: amc install --enable`,
+            action: {label: 'Open releases', kind: 'open', arg: RELEASES},
+        };
+    }
+    if (!unit) {
+        return {
+            state: 'not-set-up',
+            summary: 'amc is installed but not set up',
+            hint: 'Run: amc install --enable\n(installs and starts the user service)',
+            action: {label: 'Copy command', kind: 'copy', arg: 'amc install --enable'},
+        };
+    }
+    return {
+        state: 'not-running',
+        summary: 'daemon is not running',
+        hint: `Start it: ${start}\n${logs}`,
+        action: {label: 'Start daemon', kind: 'start', arg: start},
+    };
+}

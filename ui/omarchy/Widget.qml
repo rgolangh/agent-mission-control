@@ -63,6 +63,7 @@ Item {
   Api {
     id: api
     baseUrl: root.setting("apiUrl", "http://127.0.0.1:4200")
+    runtimeDir: (Quickshell.env("XDG_RUNTIME_DIR") || "") + "/agent-mission-control"
     token: tokenFile.loaded ? tokenFile.text().trim() : ""
     // Snappier while you are looking at it.
     interval: root.opened ? 1000 : root.setting("pollIntervalMs", 2000)
@@ -120,6 +121,32 @@ Item {
     }
   }
 
+  // ------------------------------------------------- daemon down: one button
+
+  property string downNote: ""
+
+  // Fixed argv per kind (Api.daemonState), never a shell string.
+  function runAction(action) {
+    if (!action) return
+    downNote = ""
+    if (action.kind === "start" || action.kind === "restart") {
+      Quickshell.execDetached(["systemctl", "--user", action.kind, api.service])
+      recheck.restart()
+    } else if (action.kind === "copy") {
+      Quickshell.execDetached(["wl-copy", "--", action.arg])
+      downNote = "copied: " + action.arg
+    } else if (action.kind === "open") {
+      Quickshell.execDetached(["xdg-open", action.arg])
+      root.close()
+    }
+  }
+
+  Timer {
+    id: recheck
+    interval: 1500
+    onTriggered: api.refresh()
+  }
+
   // ------------------------------------------------------------ formatting
 
   function statusGlyph(s) {
@@ -168,7 +195,7 @@ Item {
   }
 
   readonly property string summary: {
-    if (!api.reachable) return api.loaded ? api.error : "connecting…"
+    if (!api.reachable) return api.loaded ? api.down.summary : "connecting…"
     var parts = []
     if (api.waitingCount) parts.push(api.waitingCount + " waiting on you")
     if (api.stuckCount) parts.push(api.stuckCount + " stuck")
@@ -269,11 +296,13 @@ Item {
       anchors.verticalCenter: parent.verticalCenter
       visible: text !== ""
       // What needs you; otherwise how many are busy.
-      text: api.attentionCount ? String(api.attentionCount) : (api.runningCount ? String(api.runningCount) : "")
+      // Down: a cross, so it doesn't read as "nothing to do".
+      text: api.loaded && !api.reachable ? "✕"
+        : api.attentionCount ? String(api.attentionCount) : (api.runningCount ? String(api.runningCount) : "")
       font.family: root.fontFamily
       font.pixelSize: 12
       font.bold: api.attentionCount > 0
-      color: api.attentionCount ? root.urgent : root.dim
+      color: api.reachable && api.attentionCount ? root.urgent : root.dim
     }
   }
 
@@ -406,13 +435,28 @@ Item {
 
           Text {
             textFormat: Text.PlainText // agent text: never HTML
-            visible: api.loaded && !api.reachable
+            visible: api.loaded && !api.reachable && text !== ""
             width: parent.width
-            text: "Start the daemon: amc serve -discover\n(looking for it at " + api.baseUrl + ")"
+            text: api.down.hint
             wrapMode: Text.Wrap
             color: root.dim
             font.family: root.fontFamily
             font.pixelSize: 12
+          }
+
+          Chip {
+            visible: api.loaded && !api.reachable && !!api.down.action
+            label: api.down.action ? api.down.action.label : ""
+            onActivated: root.runAction(api.down.action)
+          }
+
+          Text {
+            textFormat: Text.PlainText
+            visible: api.loaded && !api.reachable && root.downNote !== ""
+            text: root.downNote
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: 11
           }
 
           Repeater {
