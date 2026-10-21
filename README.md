@@ -69,11 +69,8 @@ would shadow them). After a package upgrade, run `amc install` again to
 refresh the per-user integrations, and `systemctl --user restart
 agent-mission-control` (the RPM restarts it for you).
 
-On Omarchy, `amc install` also puts the bar widget in place. The widget is
-also published for `omarchy plugin add
-https://github.com/rgolangh/omarchy-agent-mission-control`; use one or the
-other ([details](ui/omarchy/README.md#install)). `amc install` is
-recommended: it keeps the widget at the daemon's version.
+On Omarchy, `amc install` also puts the bar widget in place, at the
+daemon's version ([details](ui/omarchy/README.md#install)).
 
 ### From the release binary
 

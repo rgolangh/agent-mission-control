@@ -61,7 +61,7 @@ itself, it only checks that the files match the tag.
 3. **rpm**: in `fedora:$FEDORA` on an x86_64 and an arm64 runner, `rpmbuild -ba`
    from the source tarball (rpmlint output in the log, not fatal).
 4. **release**: one GitHub release with everything and a fresh `SHA256SUMS`.
-5. **omarchy-plugin**: mirrors `ui/omarchy` (see below), if configured.
+5. **omarchy-plugin**: mirrors `ui/omarchy` (see below); not set up, so it only prints a notice.
 
 Pull requests touching `packaging/`, `.copr/`, `release.yml` or `go.mod`
 (and manual runs) run build, arch and rpm at the version in the files, so
@@ -145,7 +145,12 @@ Users: `sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install ag
 The GNOME extension subpackage comes in through a weak dependency when
 `gnome-shell` is installed.
 
-## Omarchy plugin mirror
+## Omarchy plugin mirror (not set up)
+
+Dropped for now: the widget needs the daemon anyway, and `amc install`
+puts it in place at the daemon's version, so a second install route adds
+nothing yet. The job stays in the workflow, inert, in case it is wanted
+later (e.g. to be listed in an Omarchy plugin directory).
 
 `omarchy plugin add <git-url>` wants `manifest.json` at the repository root,
 so the release workflow's `omarchy-plugin` job pushes

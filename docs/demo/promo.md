@@ -97,7 +97,6 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 ## Before posting (TODO-verify)
 
 - [ ] The `pacman -U` URL points at the release being announced. Once the AUR package exists, switch to `yay -S agent-mission-control-bin`.
-- [ ] `omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control`: the plugin repo exists, and `omarchy plugin add` is the right command for third-party plugins on the current Omarchy release.
 - [ ] Whether the package (or `amc install`) also sets up the OpenCode bridge and Claude Code hooks, or the posts need one more line.
 - [ ] The Discussions GIF link points at `main`: merge `docs/demo/promo.gif` first, or upload the GIF into the post instead.
 - [ ] "20 minutes" in the X post is illustrative.
