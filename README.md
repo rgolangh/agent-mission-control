@@ -54,7 +54,7 @@ The package puts `amc` in `/usr/bin`, a systemd user service in
 # The AUR package agent-mission-control-bin is coming (AUR sign-ups are closed for now).
 sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 # Fedora (COPR)
-sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control
+sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control
 
 amc install --enable   # enable the service, add the agent integrations and desktop UI
 amc doctor

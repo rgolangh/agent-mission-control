@@ -124,7 +124,7 @@ Arch has (go.mod's `toolchain go1.27.2` is a preference, not a requirement).
 
 One-time:
 
-1. Log in at <https://copr.fedorainfracloud.org> (Fedora account), create
+1. Log in at <https://copr.fedorainfracloud.org> (Fedora account `rgolan`), create
    project `agent-mission-control` with chroots `fedora-45-x86_64`,
    `fedora-45-aarch64`, `fedora-rawhide-*` (needs `golang >= 1.27`: Fedora
    44's Go is too old for `go 1.27` in go.mod).
@@ -141,7 +141,7 @@ Manual alternative per release: `copr-cli build agent-mission-control
 agent-mission-control-0.2.0-1.fc45.src.rpm` with the SRPM from the release
 (needs `~/.config/copr` from <https://copr.fedorainfracloud.org/api/>).
 
-Users: `sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control`.
+Users: `sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control`.
 The GNOME extension subpackage comes in through a weak dependency when
 `gnome-shell` is installed.
 
