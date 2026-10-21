@@ -10,7 +10,7 @@
 %global uuid agent-mission-control@rgolangh.github.io
 
 Name:           agent-mission-control
-Version:        0.1.1
+Version:        0.1.2
 Release:        1%{?dist}
 Summary:        One view of your coding-agent sessions: working, waiting on you, done or stuck
 
@@ -94,5 +94,8 @@ go test ./...
 %{_datadir}/gnome-shell/extensions/%{uuid}/
 
 %changelog
+* Wed Oct 21 2026 Roy Golan <royg21@gmail.com> - 0.1.2-1
+- Release v0.1.2
+
 * Tue Oct 20 2026 Roy Golan <royg21@gmail.com> - 0.1.1-1
 - First RPM packaging
