@@ -12,11 +12,18 @@
 # widget's port (127.0.0.1:4200), so the installed omarchy-shell widget shows
 # the demo. Stop your own daemon first (systemctl --user stop agent-mission-control)
 # and start it again afterwards.
+#
+# DEMO_STORY=promo plays the promo scene instead (see promo/): two OpenCode
+# sessions and one Claude Code session, all busy, that move only when
+# promo/cue.sh says so. DEMO_STATE, DEMO_FAKE_PORT and DEMO_LISTEN let it run
+# next to the README demo.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
+here=$repo/docs/demo
 state=${DEMO_STATE:-/tmp/mc-demo}   # short: it holds a unix socket path
 fake_port=${DEMO_FAKE_PORT:-4396}
+story=${DEMO_STORY:-readme}
 
 stop() {
   for f in "$state"/*.pid; do
@@ -44,11 +51,11 @@ start() {
       exit 1
     fi
   else
-    runtime=$state/run listen=127.0.0.1:4299
+    runtime=$state/run listen=${DEMO_LISTEN:-127.0.0.1:4299}
     mkdir -p "$runtime" && chmod 700 "$runtime"
   fi
 
-  "$state/bin/fake-opencode" -listen "127.0.0.1:$fake_port" >"$state/fake.log" 2>&1 &
+  "$state/bin/fake-opencode" -story "$story" -listen "127.0.0.1:$fake_port" >"$state/fake.log" 2>&1 &
   echo $! >"$state/fake.pid"
   XDG_RUNTIME_DIR=$runtime CLAUDE_CONFIG_DIR=$state/claude \
     "$state/bin/amc" serve -listen "$listen" -opencode "http://127.0.0.1:$fake_port" \
@@ -59,7 +66,11 @@ start() {
     sleep 0.1
   done
 
-  claude_session "$runtime"
+  if [ "$story" = promo ]; then
+    DEMO_STATE=$state DEMO_FAKE_PORT=$fake_port XDG_RUNTIME_DIR=$runtime "$here/promo/cue.sh" claude-start
+  else
+    claude_session "$runtime"
+  fi
 
   cat <<EOF
 export XDG_RUNTIME_DIR=$runtime

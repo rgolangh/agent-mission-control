@@ -37,6 +37,24 @@ the frame.
 The GIFs are committed. The MP4s are not (`.gitignore`): drag one into a
 GitHub comment or release editor if you want an inline player.
 
+## Promo clip
+
+```bash
+docs/demo/record-promo.sh     # -> promo.mp4 (1920x1080, for X) + promo.gif; go, qs, curl, ffmpeg
+```
+
+A 29s take for sharing (shot list and post drafts in `promo.md`): three
+agents work, one asks a question, the bar widget turns urgent and notifies,
+the question is answered from the panel, everyone finishes. Unlike
+`record-omarchy.sh` it never touches your screen or your service:
+`promo/shell.qml` runs in an offscreen Quickshell, draws a mock desktop around
+the real widget and writes frames itself, against a throwaway daemon
+(`/tmp/mc-promo`, port 4298) and `fake-opencode -story promo`, whose beats
+`promo/cue.sh` triggers on the scene's timeline. notify-send is stubbed, so
+the toast is drawn from what the widget sent. If a Claude Code process is an
+ancestor of the recorder (running it from inside Claude Code), the Claude card
+gets a terminal button.
+
 To poke at the story by hand:
 
 ```bash

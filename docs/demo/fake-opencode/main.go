@@ -47,6 +47,7 @@ type server struct {
 func main() {
 	listen := flag.String("listen", "127.0.0.1:4396", "address to serve on")
 	pace := flag.Duration("pace", 700*time.Millisecond, "delay between scripted events")
+	story := flag.String("story", "readme", "readme: the README story, played on its own; promo: the promo scene, played by POST /demo/cue/{name}")
 	flag.Parse()
 
 	s := &server{
@@ -60,10 +61,12 @@ func main() {
 		Prompt: "Move session handling into the auth middleware."})
 	s.add(&session{ID: "ses_3c88Lq2pSyncTst", Title: "Fix flaky sync test", Dir: "~/src/sync",
 		Prompt: "TestSyncRetry fails about one run in five. Find out why and fix it."})
-	s.add(&session{ID: "ses_9d02Hx4mDepsBmp", Title: "Bump Go dependencies", Dir: "~/src/api",
-		Prompt: "Update all modules to their latest minor versions."})
-	s.add(&session{ID: "ses_5e6bNv8rRelNote", Title: "Write release notes for v0.2", Dir: "~/src/docs",
-		Prompt: "Draft the v0.2 release notes from the merged PRs."})
+	if *story == "readme" {
+		s.add(&session{ID: "ses_9d02Hx4mDepsBmp", Title: "Bump Go dependencies", Dir: "~/src/api",
+			Prompt: "Update all modules to their latest minor versions."})
+		s.add(&session{ID: "ses_5e6bNv8rRelNote", Title: "Write release notes for v0.2", Dir: "~/src/docs",
+			Prompt: "Draft the v0.2 release notes from the merged PRs."})
+	}
 
 	http.HandleFunc("GET /global/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"healthy": true, "version": "demo"})
@@ -79,7 +82,14 @@ func main() {
 	http.HandleFunc("POST /permission/{id}/reply", s.replyPermission)
 	http.HandleFunc("POST /session/{id}/prompt_async", s.prompt)
 
-	go s.script(*pace)
+	switch *story {
+	case "readme":
+		go s.script(*pace)
+	case "promo":
+		http.HandleFunc("POST /demo/cue/{name}", s.cue)
+	default:
+		log.Fatalf("unknown story %q", *story)
+	}
 	log.Printf("fake opencode on http://%s", *listen)
 	log.Fatal(http.ListenAndServe(*listen, nil))
 }
@@ -143,6 +153,68 @@ func (s *server) script(pace time.Duration) {
 		}},
 	})
 	s.mu.Unlock()
+}
+
+// syncTodos is the flaky-test agent's plan in the promo; cue "sync-N" marks
+// the first N done.
+var syncTodos = []string{
+	"Reproduce the TestSyncRetry flake",
+	"Find the race",
+	"Fix it and rerun 200x",
+}
+
+// cue plays one beat of the promo scene (docs/demo/promo), so the recorder
+// decides when things happen and the take stays in sync with its captions:
+//
+//	sync-0..sync-2  the flaky-test agent works through its todos
+//	ask             the auth agent asks which session store to use
+//	sync-done       the flaky-test agent finishes
+//
+// Answering the question (POST /question/{id}/reply) needs no cue: the auth
+// agent resumes and finishes on its own, as in the README story.
+func (s *server) cue(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	const sync, auth = "ses_3c88Lq2pSyncTst", "ses_7a1fRw9kAuthMw"
+	setTodos := func(done int) {
+		var ts []todo
+		for i, c := range syncTodos {
+			st := "pending"
+			switch {
+			case i < done:
+				st = "completed"
+			case i == done:
+				st = "in_progress"
+			}
+			ts = append(ts, todo{c, "high", st})
+		}
+		s.sessions[sync].Todos = ts
+		s.emit("todo.updated", map[string]any{"sessionID": sync, "todos": ts})
+	}
+	switch name := r.PathValue("name"); name {
+	case "sync-0", "sync-1", "sync-2":
+		setTodos(int(name[len(name)-1] - '0'))
+	case "sync-done":
+		setTodos(len(syncTodos))
+		s.idle(sync, "The retry test raced the fake clock; fixed. TestSyncRetry passed 200 runs in a row.")
+	case "ask":
+		s.ask(auth, "que_8pz20", false, map[string]any{
+			"id": "que_8pz20", "sessionID": auth,
+			"questions": []map[string]any{{
+				"header":   "Session store",
+				"question": "Which session store should the middleware use?",
+				"options": []map[string]any{
+					{"label": "Redis", "description": "shared across replicas"},
+					{"label": "Postgres", "description": "reuse the main database"},
+					{"label": "In-memory", "description": "single instance only"},
+				},
+			}},
+		})
+	default:
+		http.Error(w, "unknown cue", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // emit sends one /event frame to every subscriber. Callers hold s.mu.
