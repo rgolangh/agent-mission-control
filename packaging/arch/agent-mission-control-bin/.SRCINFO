@@ -1,0 +1,23 @@
+pkgbase = agent-mission-control-bin
+	pkgdesc = One view of your coding-agent sessions (OpenCode, Claude Code): working, waiting on you, done or stuck
+	pkgver = 0.1.1
+	pkgrel = 1
+	url = https://github.com/rgolangh/agent-mission-control
+	install = agent-mission-control.install
+	arch = x86_64
+	arch = aarch64
+	license = Apache-2.0
+	optdepends = opencode: OpenCode sessions (discovered automatically)
+	optdepends = claude-code: Claude Code sessions (hooks plugin, via amc install)
+	optdepends = omarchy-shell: the Omarchy bar widget (via amc install or omarchy plugin add)
+	optdepends = gnome-shell: the GNOME Shell extension (installed system-wide)
+	provides = agent-mission-control=0.1.1
+	conflicts = agent-mission-control
+	options = !strip
+	options = !debug
+	source_x86_64 = https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.1/amc-0.1.1-linux-amd64.tar.gz
+	sha256sums_x86_64 = SKIP
+	source_aarch64 = https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.1/amc-0.1.1-linux-arm64.tar.gz
+	sha256sums_aarch64 = SKIP
+
+pkgname = agent-mission-control-bin

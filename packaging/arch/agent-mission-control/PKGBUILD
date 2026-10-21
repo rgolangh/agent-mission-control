@@ -1,0 +1,47 @@
+# Maintainer: Roy Golan <royg21 at gmail dot com>
+#
+# Builds from the release's source tarball. pkgver and the checksum are set
+# by packaging/arch/update.sh; see packaging/README.md.
+
+pkgname=agent-mission-control
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="One view of your coding-agent sessions (OpenCode, Claude Code): working, waiting on you, done or stuck"
+arch=('x86_64' 'aarch64')
+url="https://github.com/rgolangh/agent-mission-control"
+license=('Apache-2.0')
+depends=('glibc')
+makedepends=('go>=2:1.27')
+optdepends=('opencode: OpenCode sessions (discovered automatically)'
+            'claude-code: Claude Code sessions (hooks plugin, via amc install)'
+            'omarchy-shell: the Omarchy bar widget (via amc install or omarchy plugin add)'
+            'gnome-shell: the GNOME Shell extension (installed system-wide)')
+install=$pkgname.install
+source=("$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+_uuid=agent-mission-control@rgolangh.github.io
+
+build() {
+  cd "$pkgname-$pkgver"
+  export CGO_CPPFLAGS="$CPPFLAGS" CGO_CFLAGS="$CFLAGS" CGO_CXXFLAGS="$CXXFLAGS" CGO_LDFLAGS="$LDFLAGS"
+  export GOFLAGS="-buildmode=pie -trimpath -mod=readonly -modcacherw"
+  export GOTOOLCHAIN=local # go.mod asks for 1.27.2; use the packaged go, never download one
+  go build -ldflags "-linkmode=external -extldflags '$LDFLAGS' -X main.version=v$pkgver" \
+    -o build/amc ./cmd/amc
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  GOTOOLCHAIN=local go test ./...
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 build/amc "$pkgdir/usr/bin/amc"
+  install -Dm644 packaging/systemd/agent-mission-control.service "$pkgdir/usr/lib/systemd/user/agent-mission-control.service"
+  install -Dm644 -t "$pkgdir/usr/share/gnome-shell/extensions/$_uuid/" \
+    ui/gnome/{metadata.json,extension.js,client.js,model.js,stylesheet.css}
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md SECURITY.md
+}

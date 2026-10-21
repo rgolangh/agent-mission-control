@@ -10,6 +10,13 @@
 // left alone (a development setup linking into a checkout). Commands that
 // would change another tool's settings, such as enabling a shell extension,
 // are printed, not run, unless Options.Enable is set.
+//
+// Packaged installs (an Arch or Fedora package that puts the binary in
+// /usr/bin, the service in /usr/lib/systemd/user and the GNOME extension in
+// /usr/share/gnome-shell/extensions) are detected: when the running binary is
+// the packaged one, install uses the packaged service and extension instead
+// of per-user copies (which would shadow them and go stale on the next
+// package upgrade), and removes per-user copies it wrote earlier.
 package install
 
 import (
@@ -31,6 +38,7 @@ import (
 type Env struct {
 	Home   string                                  // $HOME
 	Exe    string                                  // the running binary
+	Root   string                                  // prefix for system paths ("" = /); tests set it
 	Assets fs.FS                                   // agentmissioncontrol.Assets
 	Look   func(cmd string) bool                   // is cmd on PATH?
 	Run    func(name string, args ...string) error // run a command (systemctl, ...)
@@ -48,6 +56,13 @@ type Options struct {
 // GNOMEUUID is the GNOME Shell extension's UUID (its directory name).
 const GNOMEUUID = "agent-mission-control@rgolangh.github.io"
 
+// Where distribution packages put things (packaging/ in the repository).
+const (
+	SystemBin   = "/usr/bin/amc"
+	SystemUnit  = "/usr/lib/systemd/user/agent-mission-control.service"
+	SystemGNOME = "/usr/share/gnome-shell/extensions/" + GNOMEUUID
+)
+
 // File is one file to write.
 type File struct {
 	Path string // absolute
@@ -64,6 +79,12 @@ type Component struct {
 	Post     [][]string // commands run after writing files (best effort)
 	Enable   [][]string // commands that change another tool's settings: printed unless Options.Enable
 	Notes    []string   // shown after install
+	// Supersede lists per-user files an earlier install wrote that a
+	// packaged file now replaces: removed if ours and unchanged.
+	Supersede []string
+	// Skip, if set, is why this component is left alone even if selected
+	// (another tool manages it).
+	Skip string
 }
 
 func (e Env) binDir() string  { return filepath.Join(e.Home, ".local", "bin") }
@@ -71,40 +92,75 @@ func (e Env) BinPath() string { return filepath.Join(e.binDir(), "amc") }
 func (e Env) unitPath() string {
 	return filepath.Join(e.Home, ".config", "systemd", "user", "agent-mission-control.service")
 }
+func (e Env) omarchyDir() string {
+	return filepath.Join(e.Home, ".config", "omarchy", "plugins", "agent-mission-control")
+}
+
+// OmarchyGitManaged reports whether the Omarchy plugin directory is a git
+// clone, i.e. was put there by `omarchy plugin add <repo>` (which names the
+// directory after the manifest id, the same one install uses). Omarchy then
+// owns it and updates it with `omarchy plugin update`.
+func (e Env) OmarchyGitManaged() bool {
+	return exists(filepath.Join(e.omarchyDir(), ".git"))
+}
+
 func (e Env) ManifestPath() string {
 	return filepath.Join(e.Home, ".local", "share", "agent-mission-control", "install.json")
 }
 
+func (e Env) sys(p string) string { return filepath.Join(e.Root, p) }
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// Packaged reports whether the running binary is the one a distribution
+// package installed, with the package's service next to it.
+func (e Env) Packaged() bool {
+	return e.Exe != "" && samePath(e.Exe, e.sys(SystemBin)) && exists(e.sys(SystemUnit))
+}
+
 // Unit is the systemd user service, pointing at the installed binary.
 func (e Env) Unit() []byte {
-	return []byte(`# Written by amc install; reinstalling replaces it.
-[Unit]
+	return []byte("# Written by amc install; reinstalling replaces it.\n" + UnitBody(e.BinPath()))
+}
+
+// UnitBody is the service without its header comment; the packaged unit
+// (packaging/systemd) is UnitBody(SystemBin), which a test checks.
+func UnitBody(bin string) string {
+	return `[Unit]
 Description=agent-mission-control: agent workflow state daemon
 Documentation=https://github.com/rgolangh/agent-mission-control
 
 [Service]
-ExecStart=` + e.BinPath() + ` serve -discover
+ExecStart=` + bin + ` serve -discover
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=default.target
-`)
+`
 }
 
 // Plan lists every component, detected or not.
 func Plan(e Env) ([]Component, error) {
 	var comps []Component
 
+	packaged := e.Packaged()
 	core := Component{Name: "daemon", Detected: true, Why: "always"}
-	if e.Exe != "" && !samePath(e.Exe, e.BinPath()) {
-		data, err := os.ReadFile(e.Exe)
-		if err != nil {
-			return nil, err
+	if packaged {
+		// The package owns the binary and the unit; a per-user unit of the
+		// same name would override the packaged one.
+		core.Why = "packaged: " + SystemBin + ", " + SystemUnit
+		core.Supersede = []string{e.BinPath(), e.unitPath()}
+	} else {
+		if e.Exe != "" && !samePath(e.Exe, e.BinPath()) {
+			data, err := os.ReadFile(e.Exe)
+			if err != nil {
+				return nil, err
+			}
+			core.Files = append(core.Files, File{e.BinPath(), data, 0o755})
 		}
-		core.Files = append(core.Files, File{e.BinPath(), data, 0o755})
+		core.Files = append(core.Files, File{e.unitPath(), e.Unit(), 0o644})
 	}
-	core.Files = append(core.Files, File{e.unitPath(), e.Unit(), 0o644})
 	core.Post = [][]string{
 		{"systemctl", "--user", "daemon-reload"},
 		{"systemctl", "--user", "enable", "agent-mission-control.service"},
@@ -134,21 +190,32 @@ func Plan(e Env) ([]Component, error) {
 
 	om := Component{Name: "omarchy"}
 	om.Detected, om.Why = detect(e, "omarchy-shell", "")
-	if f, err := assetFiles(e.Assets, "ui/omarchy", filepath.Join(e.Home, ".config", "omarchy", "plugins", "agent-mission-control")); err == nil {
+	if f, err := assetFiles(e.Assets, "ui/omarchy", e.omarchyDir()); err == nil {
 		om.Files = f
 	} else {
 		return nil, err
 	}
 	om.Post = [][]string{{"omarchy-shell", "-q", "shell", "rescanPlugins"}}
 	om.Enable = [][]string{{"omarchy", "plugin", "enable", "agent-mission-control"}}
+	if e.OmarchyGitManaged() {
+		om.Skip = "installed with `omarchy plugin add` (git clone in " + tilde(e, e.omarchyDir()) + "); update it with `omarchy plugin update`"
+	}
 	comps = append(comps, om)
 
 	gn := Component{Name: "gnome"}
 	gn.Detected, gn.Why = detect(e, "gnome-shell", "")
-	if f, err := assetFiles(e.Assets, "ui/gnome", filepath.Join(e.Home, ".local", "share", "gnome-shell", "extensions", GNOMEUUID)); err == nil {
-		gn.Files = f
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	f, err := assetFiles(e.Assets, "ui/gnome", filepath.Join(e.Home, ".local", "share", "gnome-shell", "extensions", GNOMEUUID))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
+	}
+	if packaged && exists(e.sys(SystemGNOME)) {
+		// A user extension of the same UUID would shadow the packaged one.
+		gn.Why += "; extension packaged in " + SystemGNOME
+		for _, x := range f {
+			gn.Supersede = append(gn.Supersede, x.Path)
+		}
+	} else {
+		gn.Files = f
 	}
 	gn.Enable = [][]string{{"gnome-extensions", "enable", GNOMEUUID}}
 	gn.Notes = []string{"On Wayland, GNOME Shell loads new extensions after you log out and back in."}
@@ -200,6 +267,9 @@ func assetFiles(assets fs.FS, srcDir, dstDir string, names ...string) ([]File, e
 type Manifest struct {
 	Version string            `json:"version"`
 	Files   map[string]string `json:"files"` // path -> sha256 of what we wrote
+	// PackagedService is set when install enabled the packaged service
+	// (SystemUnit) rather than writing its own, so uninstall stops it.
+	PackagedService bool `json:"packaged_service,omitempty"`
 }
 
 func (e Env) LoadManifest() Manifest {
@@ -311,12 +381,25 @@ func Install(e Env, version string, opt Options) error {
 			fmt.Fprintf(e.Out, "- %-12s skipped (%s)\n", c.Name, why)
 			continue
 		}
-		if len(c.Files) == 0 {
+		if c.Skip != "" {
+			fmt.Fprintf(e.Out, "- %-12s skipped (%s)\n", c.Name, c.Skip)
+			continue
+		}
+		if len(c.Files) == 0 && len(c.Supersede) == 0 {
 			fmt.Fprintf(e.Out, "- %-12s nothing to install in this build\n", c.Name)
 			continue
 		}
 		chosen = append(chosen, c)
 		fmt.Fprintf(e.Out, "+ %-12s (%s)\n", c.Name, c.Why)
+		for _, p := range c.Supersede {
+			switch superseded(e, m, p) {
+			case Ours, UpToDate:
+				fmt.Fprintf(e.Out, "    %-22s %s\n", "remove (packaged)", tilde(e, p))
+			case Missing, Symlink:
+			default:
+				fmt.Fprintf(e.Out, "    %-22s %s\n", "WARNING: shadows package", tilde(e, p))
+			}
+		}
 		for _, f := range c.Files {
 			s := State(e.Home, m, f.Path, f.Data)
 			fmt.Fprintf(e.Out, "    %-22s %s\n", s, tilde(e, f.Path))
@@ -334,7 +417,17 @@ func Install(e Env, version string, opt Options) error {
 		return nil
 	}
 
+	dirs := map[string]bool{}
 	for _, c := range chosen {
+		for _, p := range c.Supersede {
+			if s := superseded(e, m, p); s == Ours || s == UpToDate {
+				if err := os.Remove(p); err != nil {
+					return err
+				}
+				delete(m.Files, p)
+				dirs[filepath.Dir(p)] = true
+			}
+		}
 		for _, f := range c.Files {
 			switch State(e.Home, m, f.Path, f.Data) {
 			case Symlink:
@@ -347,6 +440,12 @@ func Install(e Env, version string, opt Options) error {
 				return err
 			}
 			m.Files[f.Path] = sum(f.Data)
+		}
+	}
+	removeEmptyDirs(e, dirs)
+	for _, c := range chosen {
+		if c.Name == "daemon" && len(c.Files) == 0 {
+			m.PackagedService = true
 		}
 	}
 	m.Version = version
@@ -379,17 +478,41 @@ func Install(e Env, version string, opt Options) error {
 	return nil
 }
 
+// superseded classifies a per-user file a package now replaces: UpToDate if
+// it is exactly what install wrote (so it may go), Foreign or Modified if
+// someone else's, Missing or Symlink if there is nothing to do.
+func superseded(e Env, m Manifest, p string) FileState {
+	if underSymlink(e.Home, p) {
+		return Symlink
+	}
+	cur, err := os.ReadFile(p)
+	if err != nil {
+		return Missing
+	}
+	want, ok := m.Files[p]
+	switch {
+	case !ok:
+		return Foreign
+	case want == sum(cur):
+		return UpToDate
+	default:
+		return Modified
+	}
+}
+
 // Uninstall removes what install wrote and is unchanged, and stops the
 // service. Modified files are kept unless Force.
 func Uninstall(e Env, opt Options) error {
 	m := e.LoadManifest()
-	if len(m.Files) == 0 {
+	if len(m.Files) == 0 && !m.PackagedService {
 		fmt.Fprintln(e.Out, "nothing installed by amc install")
 		return nil
 	}
-	// Only touch the service if install put it there: an uninstall of, say,
-	// just the GNOME extension must not stop a daemon set up some other way.
+	// Only touch the service if install put it there (or enabled the
+	// packaged one): an uninstall of, say, just the GNOME extension must not
+	// stop a daemon set up some other way.
 	_, ownsUnit := m.Files[e.unitPath()]
+	ownsUnit = ownsUnit || m.PackagedService
 	if ownsUnit && !opt.DryRun && e.Look != nil && e.Look("systemctl") {
 		_ = e.Run("systemctl", "--user", "disable", "--now", "agent-mission-control.service")
 	}
@@ -404,6 +527,13 @@ func Uninstall(e Env, opt Options) error {
 		// delete through one: the path may now lead into a checkout.
 		if underSymlink(e.Home, p) {
 			fmt.Fprintf(e.Out, "  kept       %s (symlink: left alone)\n", tilde(e, p))
+			delete(m.Files, p)
+			continue
+		}
+		// Replaced by `omarchy plugin add` since: its clone's files may
+		// match what install wrote, but they are omarchy's now.
+		if e.OmarchyGitManaged() && strings.HasPrefix(p, e.omarchyDir()+string(filepath.Separator)) {
+			fmt.Fprintf(e.Out, "  kept       %s (managed by omarchy plugin)\n", tilde(e, p))
 			delete(m.Files, p)
 			continue
 		}

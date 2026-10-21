@@ -40,6 +40,40 @@ with no activity at all for 15 minutes is flagged as hung.
 
 ## Install
 
+### From a package (Arch / Omarchy, Fedora)
+
+The package puts `amc` in `/usr/bin`, a systemd user service in
+`/usr/lib/systemd/user` and the GNOME Shell extension in
+`/usr/share/gnome-shell/extensions`. Then, once per user (not as root)
+(maintainers: [packaging/README.md](packaging/README.md)):
+
+```bash
+# Arch / Omarchy (AUR): agent-mission-control-bin (release binary) or agent-mission-control (builds from source)
+yay -S agent-mission-control-bin
+# Fedora (COPR)
+sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control
+
+amc install --enable   # enable the service, add the agent integrations and desktop UI
+amc doctor
+```
+
+`.pkg.tar.zst` and `.rpm` files are also attached to every
+[release](https://github.com/rgolangh/agent-mission-control/releases/latest)
+(`sudo pacman -U …` / `sudo dnf install ./…`). With the packaged binary,
+`amc install` uses the packaged service and GNOME extension instead of
+per-user copies (and removes per-user copies an earlier install wrote, which
+would shadow them). After a package upgrade, run `amc install` again to
+refresh the per-user integrations, and `systemctl --user restart
+agent-mission-control` (the RPM restarts it for you).
+
+On Omarchy, `amc install` also puts the bar widget in place. The widget is
+also published for `omarchy plugin add
+https://github.com/rgolangh/omarchy-agent-mission-control`; use one or the
+other ([details](ui/omarchy/README.md#install)). `amc install` is
+recommended: it keeps the widget at the daemon's version.
+
+### From the release binary
+
 Download the binary for your machine from the
 [latest release](https://github.com/rgolangh/agent-mission-control/releases/latest),
 check it, and let it install itself:
@@ -58,11 +92,12 @@ Or from source: `CGO_ENABLED=0 GOBIN=~/.local/bin go install -trimpath github.co
 then `amc install`.
 
 `install` puts in place, for your user only:
-- the binary, in `~/.local/bin`;
-- a systemd user service, which it starts;
+- the binary, in `~/.local/bin` (not with a package: that one is in `/usr/bin`);
+- a systemd user service, which it starts (with a package: enables the packaged one);
 - the OpenCode bridge plugin, if OpenCode is installed;
 - the Claude Code hooks plugin, if Claude Code is installed;
-- the desktop UI it detects: the omarchy-shell widget or the GNOME Shell extension.
+- the desktop UI it detects: the omarchy-shell widget (unless `omarchy plugin
+  add` manages it) or the GNOME Shell extension (unless packaged).
 
 It only adds files and never edits your existing configuration. It refuses to
 overwrite anything it didn't write (unless `--force`) and leaves symlinks

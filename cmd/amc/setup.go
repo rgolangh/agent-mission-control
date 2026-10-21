@@ -134,7 +134,17 @@ func doctor([]string) error {
 	}
 	m := e.LoadManifest()
 	for _, c := range comps {
-		if c.Name == "daemon" || len(c.Files) == 0 {
+		if c.Name == "daemon" {
+			continue
+		}
+		if c.Skip != "" {
+			note(c.Name + ": " + c.Skip)
+			continue
+		}
+		if len(c.Files) == 0 {
+			if len(c.Supersede) > 0 {
+				note(c.Name + ": " + c.Why)
+			}
 			continue
 		}
 		states := map[install.FileState]int{}
