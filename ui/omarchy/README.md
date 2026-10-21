@@ -16,7 +16,23 @@ the widget notices). Agent text is always rendered as plain text, never HTML. It
 2s; every 1s while the panel is open). Answering never changes what the widget
 shows by itself: the next poll shows what the agent actually did.
 
-## Install (development: symlink this directory)
+## Install
+
+Install the daemon first ([agent-mission-control](https://github.com/rgolangh/agent-mission-control):
+the AUR package `agent-mission-control-bin`, or the release binary). Then
+either:
+
+- **`amc install`** (recommended): writes this widget from the files embedded
+  in the `amc` binary, so it always matches the daemon it talks to. After a
+  package upgrade, `amc install` again updates it.
+- **`omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control --enable`**:
+  clones this directory's mirror (released with every daemon release) and
+  updates with `omarchy plugin update`. `amc install` sees the git clone and
+  leaves it to Omarchy. Use one route or the other: both use the directory
+  `~/.config/omarchy/plugins/agent-mission-control`. To switch from
+  `amc install` to `plugin add`, run `amc uninstall` (or remove that directory) first.
+
+## Install for development (symlink this directory)
 
 ```bash
 ln -s "$PWD/ui/omarchy" ~/.config/omarchy/plugins/agent-mission-control

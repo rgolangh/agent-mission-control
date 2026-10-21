@@ -1,0 +1,20 @@
+post_install() {
+  cat <<'EOF'
+==> agent-mission-control: set it up once per user (not as root):
+      amc install --enable
+    This enables the packaged user service (agent-mission-control.service)
+    and installs the OpenCode, Claude Code and Omarchy integrations it finds
+    into your home. Check it with: amc doctor
+==> Omarchy bar widget: amc install puts it in place, or instead
+      omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control
+    (then updates come from omarchy plugin update; amc install leaves it alone).
+==> Before removing the package, run `amc uninstall` as each user.
+EOF
+}
+
+post_upgrade() {
+  cat <<'EOF'
+==> agent-mission-control: per user, refresh the integrations and restart:
+      amc install && systemctl --user restart agent-mission-control
+EOF
+}

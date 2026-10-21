@@ -1,0 +1,39 @@
+# Maintainer: Roy Golan <royg21 at gmail dot com>
+#
+# Repackages the release binaries. pkgver and the checksums are set by
+# packaging/arch/update.sh from the release's SHA256SUMS; see packaging/README.md.
+
+pkgname=agent-mission-control-bin
+_pkgname=agent-mission-control
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="One view of your coding-agent sessions (OpenCode, Claude Code): working, waiting on you, done or stuck"
+arch=('x86_64' 'aarch64')
+url="https://github.com/rgolangh/agent-mission-control"
+license=('Apache-2.0')
+depends=() # static Go binary
+optdepends=('opencode: OpenCode sessions (discovered automatically)'
+            'claude-code: Claude Code sessions (hooks plugin, via amc install)'
+            'omarchy-shell: the Omarchy bar widget (via amc install or omarchy plugin add)'
+            'gnome-shell: the GNOME Shell extension (installed system-wide)')
+provides=("$_pkgname=$pkgver")
+conflicts=("$_pkgname")
+install=$_pkgname.install
+options=('!strip' '!debug') # already stripped (-s -w); also lets makepkg repackage aarch64 on x86_64
+source_x86_64=("$url/releases/download/v$pkgver/amc-$pkgver-linux-amd64.tar.gz")
+source_aarch64=("$url/releases/download/v$pkgver/amc-$pkgver-linux-arm64.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  local goarch=amd64
+  [[ $CARCH == aarch64 ]] && goarch=arm64
+  cd "amc-$pkgver-linux-$goarch"
+
+  install -Dm755 amc "$pkgdir/usr/bin/amc"
+  install -Dm644 agent-mission-control.service "$pkgdir/usr/lib/systemd/user/agent-mission-control.service"
+  install -d "$pkgdir/usr/share/gnome-shell"
+  cp -r --no-preserve=ownership gnome-shell/extensions "$pkgdir/usr/share/gnome-shell/"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 -t "$pkgdir/usr/share/doc/$_pkgname/" README.md SECURITY.md
+}

@@ -1,5 +1,9 @@
 name: release
 
+# Tag vX.Y.Z (after `packaging/version.sh set X.Y.Z` is committed) to publish:
+# binaries, tarballs, source, the GNOME extension zip, Arch packages, RPMs,
+# the updated AUR files and SHA256SUMS. See packaging/README.md.
+
 on:
   push:
     tags: ["v*"]
@@ -7,11 +11,13 @@ on:
 permissions:
   contents: read
 
+env:
+  VERSION: ${{ github.ref_name }}
+  FEDORA: "45" # golang >= 1.27 (go.mod); bump with Fedora releases
+
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # create the release; nothing else
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -19,25 +25,132 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: versions match the tag
+        run: packaging/version.sh check "$VERSION"
       - name: test
         run: go test -race ./...
       - name: build
-        env:
-          VERSION: ${{ github.ref_name }}
+        run: packaging/dist.sh "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  # Native makepkg in Arch's own image, from the same PKGBUILD the AUR gets,
+  # so every release also proves the PKGBUILD still builds.
+  arch:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: makepkg (x86_64 + aarch64)
         run: |
-          mkdir dist
-          for arch in amd64 arm64; do
-            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.version=$VERSION" \
-              -o dist/amc-linux-$arch ./cmd/amc
-          done
-          (cd ui/gnome && zip -q ../../dist/agent-mission-control@rgolangh.github.io.shell-extension.zip \
-            metadata.json extension.js client.js model.js stylesheet.css)
-          cd dist && sha256sum amc-* *.zip > SHA256SUMS
+          docker run --rm -e VERSION -e HOST_UID="$(id -u)" -v "$PWD:/src" archlinux:base-devel bash -euxc '
+            useradd -m builder
+            cp -a /src /home/builder/src && chown -R builder /home/builder/src
+            su builder -c "cd ~/src && packaging/arch/update.sh $VERSION dist/SHA256SUMS && packaging/arch/build.sh $VERSION dist out"
+            mkdir -p /src/out-arch/aur
+            cp /home/builder/src/out/*.pkg.tar.zst /src/out-arch/
+            for p in agent-mission-control agent-mission-control-bin; do
+              mkdir /src/out-arch/aur/$p
+              cp -L /home/builder/src/packaging/arch/$p/{PKGBUILD,.SRCINFO,agent-mission-control.install} /src/out-arch/aur/$p/
+            done
+            chown -R "$HOST_UID" /src/out-arch'
+          tar -C out-arch/aur -czf "out-arch/aur-${VERSION#v}.tar.gz" .
+          rm -r out-arch/aur
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: arch
+          path: out-arch/
+          if-no-files-found: error
+
+  # rpmbuild in Fedora's image, natively per architecture (the spec builds
+  # from source, like COPR does).
+  rpm:
+    needs: build
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+      - name: rpmbuild
+        run: |
+          docker run --rm -e VERSION -e HOST_UID="$(id -u)" -v "$PWD:/src" -w /src \
+            "registry.fedoraproject.org/fedora:$FEDORA" bash -euxc '
+            dnf -y install rpm-build rpmlint golang go-rpm-macros gcc systemd-rpm-macros
+            top=/tmp/rpmbuild && mkdir -p $top/SOURCES /src/out-rpm
+            cp dist/agent-mission-control-${VERSION#v}.tar.gz $top/SOURCES/
+            rpmbuild -ba --define "_topdir $top" packaging/rpm/agent-mission-control.spec
+            rpmlint packaging/rpm/agent-mission-control.spec $top/RPMS/*/*.rpm || true
+            find $top/RPMS -name "*.rpm" ! -name "*-debug*" -exec cp {} /src/out-rpm/ \;
+            if [ "$(uname -m)" = x86_64 ]; then cp $top/SRPMS/*.src.rpm /src/out-rpm/; fi
+            chown -R "$HOST_UID" /src/out-rpm'
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rpm-${{ matrix.runner }}
+          path: out-rpm/
+          if-no-files-found: error
+
+  release:
+    needs: [build, arch, rpm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release; nothing else
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: cd dist && rm -f SHA256SUMS && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ github.ref_name }}
         run: |
           gh release create "$VERSION" dist/* --repo "$GITHUB_REPOSITORY" \
             --title "$VERSION" --generate-notes --verify-tag
+
+  # Mirror ui/omarchy to its own repository, so `omarchy plugin add <repo>`
+  # (which needs manifest.json at the repository root) works. Inert until the
+  # OMARCHY_PLUGIN_DEPLOY_KEY secret exists: a deploy key with write access
+  # on that one repository. See packaging/README.md.
+  omarchy-plugin:
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_KEY: ${{ secrets.OMARCHY_PLUGIN_DEPLOY_KEY }}
+      MIRROR: ${{ vars.OMARCHY_PLUGIN_REPO || 'rgolangh/omarchy-agent-mission-control' }}
+    steps:
+      - name: skipped
+        if: env.DEPLOY_KEY == ''
+        run: echo "::notice::OMARCHY_PLUGIN_DEPLOY_KEY is not set; not mirroring ui/omarchy to $MIRROR"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: env.DEPLOY_KEY != ''
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # subtree split walks the history
+      - name: subtree split and push
+        if: env.DEPLOY_KEY != ''
+        run: |
+          git subtree split --prefix=ui/omarchy -b omarchy-plugin
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/omarchy-plugin && chmod 600 ~/.ssh/omarchy-plugin
+          # GitHub's published host key (no trust on first use).
+          echo 'github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl' >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/omarchy-plugin -o IdentitiesOnly=yes"
+          # Deterministic split: a fast-forward of the last mirror; never forced.
+          git push "git@github.com:$MIRROR.git" "omarchy-plugin:refs/heads/main" "omarchy-plugin:refs/tags/$VERSION"

@@ -28,6 +28,8 @@ jobs:
         run: go test -race ./...
       - name: build
         run: CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/amc
+      - name: packaging versions agree (packaging/version.sh)
+        run: packaging/version.sh show && test "$(packaging/version.sh show | sort -u | wc -l)" -eq 1
       - name: GNOME extension model tests (gjs)
         run: |
           sudo apt-get update -q && sudo apt-get install -yq gjs
