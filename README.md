@@ -50,8 +50,9 @@ The package puts `amc` in `/usr/bin`, a systemd user service in
 (maintainers: [packaging/README.md](packaging/README.md)):
 
 ```bash
-# Arch / Omarchy (AUR): agent-mission-control-bin (release binary) or agent-mission-control (builds from source)
-yay -S agent-mission-control-bin
+# Arch / Omarchy: the release's package (aarch64: swap x86_64 for aarch64).
+# The AUR package agent-mission-control-bin is coming (AUR sign-ups are closed for now).
+sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 # Fedora (COPR)
 sudo dnf copr enable rgolangh/agent-mission-control && sudo dnf install agent-mission-control
 

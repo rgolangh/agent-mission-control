@@ -3,7 +3,7 @@
 # the Go linker: the Omarchy plugin manifest, the GNOME extension metadata
 # and the RPM spec. (The binary gets it from -ldflags at build time.)
 #
-#   packaging/version.sh set 0.2.0     bump all of them (commit, then tag v0.2.0)
+#   packaging/version.sh set 0.2.0     bump all of them, and the docs' pacman -U URLs (commit, then tag v0.2.0)
 #   packaging/version.sh check v0.2.0  fail unless all of them say 0.2.0 (release CI)
 #   packaging/version.sh show          print what each one says
 set -eu
@@ -26,6 +26,9 @@ set)
 	echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "not X.Y.Z: $v" >&2; exit 1; }
 	sed -i "s/^  \"version\": \".*\",\$/  \"version\": \"$v\",/" "$manifest"
 	sed -i "s/^  \"version-name\": \".*\"\$/  \"version-name\": \"$v\"/" "$metadata"
+	# The pacman -U release URLs in the docs (until the AUR package exists).
+	sed -i -E "s#/download/v[0-9.]+/agent-mission-control-bin-[0-9.]+-1-#/download/v$v/agent-mission-control-bin-$v-1-#g" \
+		README.md docs/demo/promo.md
 	old=$(sed -n 's/^Version:[[:space:]]*\(.*\)$/\1/p' "$spec")
 	if [ "$old" != "$v" ]; then
 		sed -i "s/^Version:\([[:space:]]*\).*\$/Version:\1$v/; s/^Release:\([[:space:]]*\).*\$/Release:\11%{?dist}/" "$spec"

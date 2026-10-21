@@ -59,8 +59,8 @@ user opens the panel from the bar, clicks Redis, and all three agents finish."
 >
 > Install (Arch/Omarchy):
 > ```
-> yay -S agent-mission-control-bin
-> omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control
+> sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> amc install --enable
 > ```
 > Repo: https://github.com/rgolangh/agent-mission-control
 >
@@ -82,8 +82,8 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 >
 > **Install**
 > ```bash
-> yay -S agent-mission-control-bin
-> omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control
+> sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> amc install --enable   # service, agent integrations, bar widget
 > ```
 >
 > **Security:** it can approve agent permissions, so the API is a user-only Unix socket plus a per-start bearer token on the loopback port the widget uses. Agent text is rendered as plain text and never reaches a shell. Details in SECURITY.md.
@@ -96,7 +96,7 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 
 ## Before posting (TODO-verify)
 
-- [ ] `yay -S agent-mission-control-bin`: the AUR package name and that it installs and starts the user service (packaging is in progress).
+- [ ] The `pacman -U` URL points at the release being announced. Once the AUR package exists, switch to `yay -S agent-mission-control-bin`.
 - [ ] `omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control`: the plugin repo exists, and `omarchy plugin add` is the right command for third-party plugins on the current Omarchy release.
 - [ ] Whether the package (or `amc install`) also sets up the OpenCode bridge and Claude Code hooks, or the posts need one more line.
 - [ ] The Discussions GIF link points at `main`: merge `docs/demo/promo.gif` first, or upload the GIF into the post instead.

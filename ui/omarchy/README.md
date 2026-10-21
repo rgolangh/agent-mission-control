@@ -28,7 +28,8 @@ daemon's socket.
 ## Install
 
 Install the daemon first ([agent-mission-control](https://github.com/rgolangh/agent-mission-control):
-the AUR package `agent-mission-control-bin`, or the release binary). Then
+the `.pkg.tar.zst` from the [latest release](https://github.com/rgolangh/agent-mission-control/releases/latest)
+(`sudo pacman -U <url>`), or the release binary). Then
 either:
 
 - **`amc install`** (recommended): writes this widget from the files embedded
