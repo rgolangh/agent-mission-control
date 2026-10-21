@@ -45,10 +45,13 @@ because the embedded widget always matches the daemon's API.
 ## Cutting a release
 
 ```bash
-packaging/version.sh set 0.2.0        # manifest, GNOME metadata, spec (+ changelog entry)
-git commit -am "Release v0.2.0"
-git tag v0.2.0 && git push origin main v0.2.0
+make release V=0.2.0
 ```
+
+On a clean, up-to-date `main` it runs `packaging/version.sh set 0.2.0`
+(manifest, GNOME metadata, spec and its changelog entry), commits "Release
+v0.2.0", tags `v0.2.0` and pushes both. The workflow never bumps anything
+itself, it only checks that the files match the tag.
 
 `.github/workflows/release.yml` then:
 
