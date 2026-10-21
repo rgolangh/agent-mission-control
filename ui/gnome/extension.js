@@ -68,9 +68,11 @@ class Indicator extends PanelMenu.Button {
             const r = await this._client.workflows(this._cancellable);
             this._loaded = true;
             this._reachable = r.status === 200;
-            this._error = r.status === 0 ? 'agent-mission-control is not running'
-                : r.status === 401 ? "not authorized: can't read the daemon's token file"
-                    : r.status !== 200 ? `daemon returned ${r.status}` : '';
+            this._down = model.daemonState({
+                status: r.status,
+                token: r.token,
+                ...(this._reachable ? {} : this._client.probe()),
+            });
             if (this._reachable) {
                 this._workflows = model.sortByUrgency(r.workflows);
                 const {next, fresh} = model.newlyNeedingYou(this._workflows, this._signatures);
@@ -93,7 +95,8 @@ class Indicator extends PanelMenu.Button {
     _updatePanel() {
         const c = model.counts(this._workflows);
         const n = c.attention || c.running;
-        this._count.text = this._reachable && n ? String(n) : '';
+        // Down: a cross in the count's place, so it doesn't read as "idle".
+        this._count.text = this._reachable ? (n ? String(n) : '') : this._loaded ? '✕' : '';
         const attention = this._reachable && c.attention > 0;
         for (const actor of [this._icon, this._count]) {
             if (attention)
@@ -102,6 +105,10 @@ class Indicator extends PanelMenu.Button {
                 actor.remove_style_class_name('agent-mission-control-attention');
         }
         this._icon.opacity = this._reachable ? 255 : 120;
+        if (this._loaded && !this._reachable)
+            this._count.add_style_class_name('agent-mission-control-dim');
+        else
+            this._count.remove_style_class_name('agent-mission-control-dim');
     }
 
     _notify(w) {
@@ -129,14 +136,20 @@ class Indicator extends PanelMenu.Button {
         }));
         heading.add_child(new St.Label({
             text: !this._loaded ? 'connecting…'
-                : this._reachable ? model.summary(this._workflows) : this._error,
+                : this._reachable ? model.summary(this._workflows) : this._down.summary,
             style_class: `agent-mission-control-header-summary${this._reachable ? '' : ' agent-mission-control-dim'}`,
         }));
         header.add_child(heading);
         this.menu.addMenuItem(header);
 
         if (this._loaded && !this._reachable) {
-            this._infoItem(this.menu, `Start the daemon: amc install (or systemctl --user start agent-mission-control)\nLooking for it at http://127.0.0.1:4200`);
+            this._infoItem(this.menu, this._down.hint);
+            const action = this._down.action;
+            if (action) {
+                const item = new PopupMenu.PopupMenuItem(action.label);
+                item.connect('activate', () => this._runAction(action));
+                this.menu.addMenuItem(item);
+            }
             return;
         }
         if (this._reachable && !this._workflows.length) {
@@ -150,6 +163,34 @@ class Indicator extends PanelMenu.Button {
                 logError(e, `agent-mission-control: couldn't render workflow ${model.clean(w.title || w.source_id, 80)}`);
                 this._infoItem(this.menu, `Couldn't display ${model.clean(w.title || w.source_id, 80)}. See the shell log for details.`);
             }
+        }
+    }
+
+    // The daemon-down menu's one button. Fixed argv, never a shell string.
+    _runAction(action) {
+        try {
+            if (action.kind === 'start' || action.kind === 'restart') {
+                const proc = Gio.Subprocess.new(['systemctl', '--user', action.kind, model.SERVICE],
+                    Gio.SubprocessFlags.STDERR_PIPE);
+                proc.communicate_utf8_async(null, null, (p, res) => {
+                    try {
+                        const [, , stderr] = p.communicate_utf8_finish(res);
+                        if (!p.get_successful())
+                            Main.notify('Agent Mission Control', model.clean(stderr || `systemctl ${action.kind} failed`));
+                    } catch (e) {
+                        logError(e, 'agent-mission-control');
+                    }
+                    this._refresh();
+                });
+            } else if (action.kind === 'copy') {
+                St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, action.arg);
+                Main.notify('Agent Mission Control', `Copied: ${action.arg}`);
+            } else if (action.kind === 'open') {
+                Gio.AppInfo.launch_default_for_uri(action.arg, null);
+            }
+        } catch (e) {
+            logError(e, 'agent-mission-control');
+            Main.notify('Agent Mission Control', model.clean(e.message));
         }
     }
 

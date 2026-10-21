@@ -25,7 +25,9 @@ Ways to look at it:
   [GNOME Shell extension](ui/gnome/README.md). Both have an indicator, the
   workflow list, notifications, and a jump to the agent's terminal.
 
-<img src="docs/demo/omarchy.gif" width="480" alt="The Omarchy bar widget: the count of agents that need you, then the panel, where answered agents go from waiting to running to done">
+<img src="docs/demo/promo.gif" width="720" alt="Three agents working; one asks which session store to use, the Omarchy bar icon turns amber and notifies, the panel opens and the answer Redis is picked, then all three finish and the bar goes calm">
+
+([mp4](docs/demo/promo.mp4))
 
 **Done vs stuck vs waiting** is decided by ordered, evidence-quoting rules
 (no LLM). They read how the turn ended: errors, finish reason, a closing

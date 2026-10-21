@@ -48,6 +48,29 @@ eq(again.fresh.length, 0, 'unchanged poll notifies nothing');
 const changed = m.newlyNeedingYou([{...wfs[2], status: 'stuck'}, ...wfs.slice(0, 2)], again.next);
 eq(changed.fresh.map(w => w.id), ['c'], 'a workflow that became stuck notifies once');
 
+// Daemon down: what the menu says, from what it can observe.
+const local = {installed: true, unit: true, socket: false, url: 'http://127.0.0.1:4200', tokenPath: '/run/user/1/agent-mission-control/token'};
+const ds = o => m.daemonState({...local, ...o});
+const cases = [
+    [{status: 200, token: true}, 'up', null],
+    [{status: 401, token: true}, 'unauthorized', 'restart'],
+    [{status: 500, token: true}, 'error', 'restart'],
+    [{status: 0, token: true}, 'unreachable', 'restart'],
+    [{status: 0, token: false, socket: true}, 'no-token', 'restart'],
+    [{status: 0, token: false, installed: false, unit: false}, 'not-installed', 'open'],
+    [{status: 0, token: false, unit: false}, 'not-set-up', 'copy'],
+    [{status: 0, token: false, installed: false}, 'not-running', 'start'],
+    [{status: 0, token: false}, 'not-running', 'start'],
+];
+for (const [o, state, kind] of cases) {
+    const d = ds(o);
+    eq([d.state, d.action && d.action.kind], [state, kind], `daemon state ${JSON.stringify(o)}`);
+}
+eq(ds({status: 0, token: false}).hint.includes('journalctl --user -u agent-mission-control.service'), true, 'not running: points at the logs');
+eq(ds({status: 0, token: false, installed: false, unit: false}).hint.includes(m.RELEASES), true, 'not installed: points at the releases');
+eq(ds({status: 401, token: true}).hint.includes(local.tokenPath), true, 'unauthorized: names the token file');
+eq(ds({status: 0, token: false}).action.arg, 'systemctl --user start agent-mission-control.service', 'start command');
+
 print(failed ? `${failed} failure(s)` : 'model: all passed');
 if (failed)
     imports.system.exit(1);

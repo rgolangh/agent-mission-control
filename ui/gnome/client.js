@@ -16,7 +16,28 @@ export class Client {
         this.baseUrl = baseUrl.replace(/\/$/, '');
         this._session = new Soup.Session({timeout: 6});
         const runtime = GLib.getenv('XDG_RUNTIME_DIR') || '';
-        this._tokenFile = Gio.File.new_for_path(`${runtime}/agent-mission-control/token`);
+        this.tokenPath = `${runtime}/agent-mission-control/token`;
+        this._tokenFile = Gio.File.new_for_path(this.tokenPath);
+        this._socketPath = `${runtime}/agent-mission-control/api.sock`;
+        const home = GLib.get_home_dir();
+        // Where `amc install` and distro packages put the binary and unit
+        // (GNOME Shell's PATH often lacks ~/.local/bin).
+        this._binPaths = [`${home}/.local/bin/amc`, '/usr/local/bin/amc', '/usr/bin/amc'];
+        this._unitPaths = ['.config/systemd/user', '/etc/systemd/user', '/usr/lib/systemd/user']
+            .map(d => `${d.startsWith('/') ? d : `${home}/${d}`}/agent-mission-control.service`);
+    }
+
+    // What is on disk, for explaining a daemon that doesn't answer (see
+    // model.daemonState). Cheap stat calls, only made while it is down.
+    probe() {
+        const exists = p => GLib.file_test(p, GLib.FileTest.EXISTS);
+        return {
+            installed: !!GLib.find_program_in_path('amc') || this._binPaths.some(exists),
+            unit: this._unitPaths.some(exists),
+            socket: exists(this._socketPath),
+            url: this.baseUrl,
+            tokenPath: this.tokenPath,
+        };
     }
 
     async _token(cancellable) {
@@ -30,12 +51,12 @@ export class Client {
         }
     }
 
-    // Returns {status, data}; status 0 means the daemon is not running
-    // (no token file) or unreachable.
+    // Returns {status, data, token}; status 0 means the daemon is not
+    // running (no token file: token is false) or unreachable.
     async request(method, path, body = undefined, cancellable = null) {
         const token = await this._token(cancellable);
         if (!token)
-            return {status: 0, data: null};
+            return {status: 0, data: null, token: false};
         const msg = Soup.Message.new(method, this.baseUrl + path);
         msg.request_headers.append('Authorization', `Bearer ${token}`);
         if (body !== undefined) {
@@ -50,14 +71,14 @@ export class Client {
         } catch (e) {
             if (e.matches?.(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
                 throw e;
-            return {status: 0, data: null};
+            return {status: 0, data: null, token: true};
         }
         const status = msg.get_status();
         let data = null;
         try {
             data = JSON.parse(text);
         } catch {}
-        return {status, data};
+        return {status, data, token: true};
     }
 
     async workflows(cancellable = null) {
