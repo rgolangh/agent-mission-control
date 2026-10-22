@@ -10,6 +10,8 @@
 > updated on each release. Open issues and pull requests in
 > [agent-mission-control](https://github.com/rgolangh/agent-mission-control).
 
+![The panel open from the bar: one agent asks which session store to use, with answer buttons; two others are running](preview.png)
+
 A bar icon that counts the agent workflows that need you (waiting on an
 answer, stuck or failed; in the theme's urgent color, pulsing while one is
 waiting on an answer, with an orbiting spinner while agents are running), and
