@@ -50,9 +50,11 @@ The package puts `amc` in `/usr/bin`, a systemd user service in
 (maintainers: [packaging/README.md](packaging/README.md)):
 
 ```bash
-# Arch / Omarchy: the release's package (aarch64: swap x86_64 for aarch64).
+# Arch / Omarchy: the release's package (aarch64: swap x86_64 for aarch64). Download it
+# first: pacman wants a signature for a URL, but not for a local file.
 # The AUR package agent-mission-control-bin is coming (AUR sign-ups are closed for now).
-sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 # Fedora (COPR)
 sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control
 
@@ -62,7 +64,7 @@ amc doctor
 
 `.pkg.tar.zst` and `.rpm` files are also attached to every
 [release](https://github.com/rgolangh/agent-mission-control/releases/latest)
-(`sudo pacman -U …` / `sudo dnf install ./…`). With the packaged binary,
+(`sudo pacman -U ./…` / `sudo dnf install ./…`). With the packaged binary,
 `amc install` uses the packaged service and GNOME extension instead of
 per-user copies (and removes per-user copies an earlier install wrote, which
 would shadow them). After a package upgrade, run `amc install` again to

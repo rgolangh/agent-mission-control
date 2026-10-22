@@ -29,7 +29,7 @@ daemon's socket.
 
 Install the daemon first ([agent-mission-control](https://github.com/rgolangh/agent-mission-control):
 the `.pkg.tar.zst` from the [latest release](https://github.com/rgolangh/agent-mission-control/releases/latest)
-(`sudo pacman -U <url>`), or the release binary). Then run `amc install
+(download it, then `sudo pacman -U ./<file>`), or the release binary). Then run `amc install
 --enable`: it writes this widget from the files embedded in the `amc`
 binary into `~/.config/omarchy/plugins/agent-mission-control`, so it always
 matches the daemon it talks to, and places it in the bar. After a package

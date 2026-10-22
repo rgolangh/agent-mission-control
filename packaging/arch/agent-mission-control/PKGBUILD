@@ -14,7 +14,7 @@ depends=('glibc')
 makedepends=('go>=2:1.27')
 optdepends=('opencode: OpenCode sessions (discovered automatically)'
             'claude-code: Claude Code sessions (hooks plugin, via amc install)'
-            'omarchy-shell: the Omarchy bar widget (via amc install or omarchy plugin add)'
+            'omarchy-shell: the Omarchy bar widget (via amc install)'
             'gnome-shell: the GNOME Shell extension (installed system-wide)')
 install=$pkgname.install
 source=("$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")

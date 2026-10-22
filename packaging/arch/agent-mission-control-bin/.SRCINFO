@@ -9,7 +9,7 @@ pkgbase = agent-mission-control-bin
 	license = Apache-2.0
 	optdepends = opencode: OpenCode sessions (discovered automatically)
 	optdepends = claude-code: Claude Code sessions (hooks plugin, via amc install)
-	optdepends = omarchy-shell: the Omarchy bar widget (via amc install or omarchy plugin add)
+	optdepends = omarchy-shell: the Omarchy bar widget (via amc install)
 	optdepends = gnome-shell: the GNOME Shell extension (installed system-wide)
 	provides = agent-mission-control=0.1.1
 	conflicts = agent-mission-control

@@ -26,8 +26,8 @@ set)
 	echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "not X.Y.Z: $v" >&2; exit 1; }
 	sed -i "s/^  \"version\": \".*\",\$/  \"version\": \"$v\",/" "$manifest"
 	sed -i "s/^  \"version-name\": \".*\"\$/  \"version-name\": \"$v\"/" "$metadata"
-	# The pacman -U release URLs in the docs (until the AUR package exists).
-	sed -i -E "s#/download/v[0-9.]+/agent-mission-control-bin-[0-9.]+-1-#/download/v$v/agent-mission-control-bin-$v-1-#g" \
+	# The release download URL and file name in the docs (until the AUR package exists).
+	sed -i -E "s#/download/v[0-9.]+/agent-mission-control-bin-[0-9.]+-1-#/download/v$v/agent-mission-control-bin-$v-1-#g; s#\./agent-mission-control-bin-[0-9.]+-1-#./agent-mission-control-bin-$v-1-#g" \
 		README.md docs/demo/promo.md
 	old=$(sed -n 's/^Version:[[:space:]]*\(.*\)$/\1/p' "$spec")
 	if [ "$old" != "$v" ]; then

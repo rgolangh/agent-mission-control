@@ -59,7 +59,8 @@ user opens the panel from the bar, clicks Redis, and all three agents finish."
 >
 > Install (Arch/Omarchy):
 > ```
-> sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 > amc install --enable
 > ```
 > Repo: https://github.com/rgolangh/agent-mission-control
@@ -82,7 +83,8 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 >
 > **Install**
 > ```bash
-> sudo pacman -U https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
 > amc install --enable   # service, agent integrations, bar widget
 > ```
 >
@@ -96,7 +98,7 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 
 ## Before posting (TODO-verify)
 
-- [ ] The `pacman -U` URL points at the release being announced. Once the AUR package exists, switch to `yay -S agent-mission-control-bin`.
+- [ ] The `curl -LO` URL and `pacman -U` file name point at the release being announced. Once the AUR package exists, switch to `yay -S agent-mission-control-bin`.
 - [ ] Whether the package (or `amc install`) also sets up the OpenCode bridge and Claude Code hooks, or the posts need one more line.
 - [ ] The Discussions GIF link points at `main`: merge `docs/demo/promo.gif` first, or upload the GIF into the post instead.
 - [ ] "20 minutes" in the X post is illustrative.
