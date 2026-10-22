@@ -14,7 +14,7 @@ post_upgrade() {
   cat <<'EOF2'
 ==> agent-mission-control: per user, restart the daemon (and the Omarchy bar):
       systemctl --user restart agent-mission-control && omarchy-restart-shell
-    Set up with a version before 0.1.3? Run `amc install` once: it replaces
+    Set up with a version before 0.1.4? Run `amc install` once: it replaces
     the copies in your home with links to the package's files.
 EOF2
 }
