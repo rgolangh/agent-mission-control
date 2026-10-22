@@ -67,6 +67,8 @@ install -d %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}
 install -pm 0644 ui/gnome/metadata.json ui/gnome/extension.js ui/gnome/client.js \
     ui/gnome/model.js ui/gnome/stylesheet.css \
     %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}/
+# The per-user integrations, linked into each home by amc install.
+packaging/install-share.sh %{buildroot}%{_datadir}/%{name}
 
 %check
 %if %{with check}
@@ -88,6 +90,7 @@ go test ./...
 %doc README.md SECURITY.md
 %{_bindir}/amc
 %{_userunitdir}/agent-mission-control.service
+%{_datadir}/%{name}/
 
 %files -n gnome-shell-extension-agent-mission-control
 %license LICENSE

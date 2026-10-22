@@ -16,7 +16,10 @@
 // /usr/share/gnome-shell/extensions) are detected: when the running binary is
 // the packaged one, install uses the packaged service and extension instead
 // of per-user copies (which would shadow them and go stale on the next
-// package upgrade), and removes per-user copies it wrote earlier.
+// package upgrade), and removes per-user copies it wrote earlier. The
+// per-user integrations (OpenCode bridge, Claude Code hooks, Omarchy widget)
+// are then symlinks into the package's copies under SystemShare, so a
+// package upgrade updates them too.
 package install
 
 import (
@@ -61,6 +64,9 @@ const (
 	SystemBin   = "/usr/bin/amc"
 	SystemUnit  = "/usr/lib/systemd/user/agent-mission-control.service"
 	SystemGNOME = "/usr/share/gnome-shell/extensions/" + GNOMEUUID
+	// SystemShare holds the package's copies of the per-user integrations,
+	// one directory per component (packaging/install-share.sh).
+	SystemShare = "/usr/share/agent-mission-control"
 )
 
 // File is one file to write.
@@ -68,6 +74,13 @@ type File struct {
 	Path string // absolute
 	Data []byte
 	Mode fs.FileMode
+}
+
+// Link is a symlink to put in place instead of files: a per-user
+// integration pointing at the package's copy.
+type Link struct {
+	Path   string // the per-user path (file or directory)
+	Target string // under SystemShare
 }
 
 // Component is one installable piece.
@@ -82,6 +95,9 @@ type Component struct {
 	// Supersede lists per-user files an earlier install wrote that a
 	// packaged file now replaces: removed if ours and unchanged.
 	Supersede []string
+	// Link, when the package ships this integration, replaces Files: the
+	// per-user path becomes a symlink to the packaged copy.
+	Link *Link
 	// Skip, if set, is why this component is left alone even if selected
 	// (another tool manages it).
 	Skip string
@@ -175,6 +191,7 @@ func Plan(e Env) ([]Component, error) {
 	} else {
 		return nil, err
 	}
+	linkPackaged(e, &oc, filepath.Join(e.Home, ".config", "opencode", "plugins", "agent-mission-control-bridge.js"), "opencode/agent-mission-control-bridge.js")
 	oc.Notes = []string{"New `opencode` sessions are discovered automatically; restart open ones."}
 	comps = append(comps, oc)
 
@@ -185,6 +202,7 @@ func Plan(e Env) ([]Component, error) {
 	} else {
 		return nil, err
 	}
+	linkPackaged(e, &cc, filepath.Join(e.Home, ".claude", "skills", "agent-mission-control"), "claude-code")
 	cc.Notes = []string{"Loads in new Claude Code sessions as agent-mission-control@skills-dir (run /reload-plugins in open ones)."}
 	comps = append(comps, cc)
 
@@ -195,6 +213,7 @@ func Plan(e Env) ([]Component, error) {
 	} else {
 		return nil, err
 	}
+	linkPackaged(e, &om, e.omarchyDir(), "omarchy")
 	om.Post = [][]string{{"omarchy-shell", "-q", "shell", "rescanPlugins"}}
 	om.Enable = [][]string{{"omarchy", "plugin", "enable", "agent-mission-control"}}
 	if e.OmarchyGitManaged() {
@@ -222,6 +241,23 @@ func Plan(e Env) ([]Component, error) {
 	comps = append(comps, gn)
 
 	return comps, nil
+}
+
+// linkPackaged makes c a symlink to the package's copy of it, if the
+// running binary is the packaged one and the package ships it: the files it
+// would have written become Supersede (an earlier per-user copy is removed
+// so the link can take its place).
+func linkPackaged(e Env, c *Component, path, share string) {
+	target := e.sys(filepath.Join(SystemShare, share))
+	if !e.Packaged() || !exists(target) {
+		return
+	}
+	for _, f := range c.Files {
+		c.Supersede = append(c.Supersede, f.Path)
+	}
+	c.Files = nil
+	c.Link = &Link{Path: path, Target: target}
+	c.Why += "; linked to " + filepath.Join(SystemShare, share)
 }
 
 func detect(e Env, cmd, dir string) (bool, string) {
@@ -270,15 +306,20 @@ type Manifest struct {
 	// PackagedService is set when install enabled the packaged service
 	// (SystemUnit) rather than writing its own, so uninstall stops it.
 	PackagedService bool `json:"packaged_service,omitempty"`
+	// Links are the symlinks install made into SystemShare: path -> target.
+	Links map[string]string `json:"links,omitempty"`
 }
 
 func (e Env) LoadManifest() Manifest {
-	m := Manifest{Files: map[string]string{}}
+	m := Manifest{Files: map[string]string{}, Links: map[string]string{}}
 	if b, err := os.ReadFile(e.ManifestPath()); err == nil {
 		_ = json.Unmarshal(b, &m)
 		if m.Files == nil {
 			m.Files = map[string]string{}
 		}
+	}
+	if m.Links == nil {
+		m.Links = map[string]string{}
 	}
 	return m
 }
@@ -340,6 +381,64 @@ func State(home string, m Manifest, path string, data []byte) FileState {
 	}
 }
 
+// LinkState is what is at a Link's path.
+type LinkState int
+
+const (
+	LinkMissing  LinkState = iota // nothing there (or only our superseded copy): link it
+	LinkUpToDate                  // already a symlink to the target
+	LinkOther                     // a symlink elsewhere (a development setup): left alone
+	LinkBlocked                   // a real file or directory that is not (only) our copy
+)
+
+func (s LinkState) String() string {
+	return [...]string{"link", "linked", "symlink (left alone)", "not ours: shadows package"}[s]
+}
+
+// LinkStatus classifies l. A directory or file that consists only of the
+// superseded copy install wrote earlier (ours and unchanged) counts as
+// missing: install removes it first.
+func LinkStatus(e Env, m Manifest, c Component) LinkState {
+	l := c.Link
+	if underSymlink(e.Home, filepath.Dir(l.Path)) {
+		return LinkOther
+	}
+	st, err := os.Lstat(l.Path)
+	switch {
+	case err != nil:
+		return LinkMissing
+	case st.Mode()&fs.ModeSymlink != 0:
+		if t, _ := os.Readlink(l.Path); t == l.Target {
+			return LinkUpToDate
+		}
+		return LinkOther
+	}
+	ok := map[string]bool{}
+	for _, p := range c.Supersede {
+		if s := superseded(e, m, p); s == UpToDate {
+			ok[p] = true
+		}
+	}
+	if !st.IsDir() {
+		if ok[l.Path] {
+			return LinkMissing
+		}
+		return LinkBlocked
+	}
+	blocked := false
+	_ = filepath.WalkDir(l.Path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || (!d.IsDir() && !ok[p]) {
+			blocked = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if blocked {
+		return LinkBlocked
+	}
+	return LinkMissing
+}
+
 // underSymlink reports whether path, or a directory between it and the
 // home directory, is a symlink. The home directory's direct children
 // (~/.config, ~/.claude, ~/.local) are exempt: dotfile managers often link
@@ -385,19 +484,31 @@ func Install(e Env, version string, opt Options) error {
 			fmt.Fprintf(e.Out, "- %-12s skipped (%s)\n", c.Name, c.Skip)
 			continue
 		}
-		if len(c.Files) == 0 && len(c.Supersede) == 0 {
+		if len(c.Files) == 0 && len(c.Supersede) == 0 && c.Link == nil {
 			fmt.Fprintf(e.Out, "- %-12s nothing to install in this build\n", c.Name)
 			continue
 		}
 		chosen = append(chosen, c)
 		fmt.Fprintf(e.Out, "+ %-12s (%s)\n", c.Name, c.Why)
+		ls := LinkMissing
+		if c.Link != nil {
+			ls = LinkStatus(e, m, c)
+		}
 		for _, p := range c.Supersede {
 			switch superseded(e, m, p) {
 			case Ours, UpToDate:
 				fmt.Fprintf(e.Out, "    %-22s %s\n", "remove (packaged)", tilde(e, p))
 			case Missing, Symlink:
 			default:
-				fmt.Fprintf(e.Out, "    %-22s %s\n", "WARNING: shadows package", tilde(e, p))
+				if ls != LinkBlocked { // reported once, below
+					fmt.Fprintf(e.Out, "    %-22s %s\n", "WARNING: shadows package", tilde(e, p))
+				}
+			}
+		}
+		if c.Link != nil {
+			fmt.Fprintf(e.Out, "    %-22s %s -> %s\n", ls, tilde(e, c.Link.Path), c.Link.Target)
+			if ls == LinkBlocked && !opt.Force {
+				blocked = append(blocked, c.Link.Path)
 			}
 		}
 		for _, f := range c.Files {
@@ -426,6 +537,11 @@ func Install(e Env, version string, opt Options) error {
 				}
 				delete(m.Files, p)
 				dirs[filepath.Dir(p)] = true
+			}
+		}
+		if c.Link != nil {
+			if err := applyLink(e, m, c, dirs); err != nil {
+				return err
 			}
 		}
 		for _, f := range c.Files {
@@ -478,6 +594,38 @@ func Install(e Env, version string, opt Options) error {
 	return nil
 }
 
+// applyLink replaces whatever is left at c.Link.Path (the superseded copies
+// are already removed; with --force, anything else too) with the symlink.
+func applyLink(e Env, m Manifest, c Component, dirs map[string]bool) error {
+	l := c.Link
+	switch LinkStatus(e, m, c) {
+	case LinkUpToDate:
+		m.Links[l.Path] = l.Target
+		return nil
+	case LinkOther:
+		return nil
+	}
+	removeEmptyDirs(e, dirs)
+	if st, err := os.Lstat(l.Path); err == nil {
+		if st.IsDir() {
+			// Only empty directories remain unless --force (LinkStatus).
+			if err := os.RemoveAll(l.Path); err != nil {
+				return err
+			}
+		} else if err := os.Remove(l.Path); err != nil {
+			return err
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(l.Path), 0o755); err != nil {
+		return err
+	}
+	if err := os.Symlink(l.Target, l.Path); err != nil {
+		return err
+	}
+	m.Links[l.Path] = l.Target
+	return nil
+}
+
 // superseded classifies a per-user file a package now replaces: UpToDate if
 // it is exactly what install wrote (so it may go), Foreign or Modified if
 // someone else's, Missing or Symlink if there is nothing to do.
@@ -504,7 +652,7 @@ func superseded(e Env, m Manifest, p string) FileState {
 // service. Modified files are kept unless Force.
 func Uninstall(e Env, opt Options) error {
 	m := e.LoadManifest()
-	if len(m.Files) == 0 && !m.PackagedService {
+	if len(m.Files) == 0 && len(m.Links) == 0 && !m.PackagedService {
 		fmt.Fprintln(e.Out, "nothing installed by amc install")
 		return nil
 	}
@@ -555,12 +703,31 @@ func Uninstall(e Env, opt Options) error {
 		delete(m.Files, p)
 		dirs[filepath.Dir(p)] = true
 	}
+	links := make([]string, 0, len(m.Links))
+	for p := range m.Links {
+		links = append(links, p)
+	}
+	sort.Strings(links)
+	for _, p := range links {
+		if t, err := os.Readlink(p); err != nil || t != m.Links[p] {
+			fmt.Fprintf(e.Out, "  gone       %s (no longer our link)\n", tilde(e, p))
+		} else {
+			fmt.Fprintf(e.Out, "  unlink     %s\n", tilde(e, p))
+			if !opt.DryRun {
+				if err := os.Remove(p); err != nil {
+					return err
+				}
+			}
+		}
+		delete(m.Links, p)
+		dirs[filepath.Dir(p)] = true
+	}
 	if opt.DryRun {
 		fmt.Fprintln(e.Out, "dry run: nothing changed")
 		return nil
 	}
 	removeEmptyDirs(e, dirs)
-	if len(m.Files) == 0 {
+	if len(m.Files) == 0 && len(m.Links) == 0 {
 		_ = os.Remove(e.ManifestPath())
 		_ = os.Remove(filepath.Dir(e.ManifestPath()))
 	} else if err := e.saveManifest(m); err != nil {
@@ -589,7 +756,7 @@ func removeEmptyDirs(e Env, dirs map[string]bool) {
 	sort.Slice(list, func(i, j int) bool { return len(list[i]) > len(list[j]) }) // deepest first
 	for _, d := range list {
 		for ; !stop[d] && strings.HasPrefix(d, e.Home+string(filepath.Separator)); d = filepath.Dir(d) {
-			if os.Remove(d) != nil { // fails unless empty
+			if isSymlink(d) || os.Remove(d) != nil { // fails unless empty; a link may be one install just made
 				break
 			}
 		}

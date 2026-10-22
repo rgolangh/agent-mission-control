@@ -2,6 +2,7 @@
 
 | Path | What |
 |---|---|
+| `install-share.sh` | Installs the per-user integrations under `/usr/share/agent-mission-control/` (used by `dist.sh`, the source PKGBUILD and the spec). A test keeps it identical to what the binary embeds |
 | `version.sh` | Sets/checks the version in the files that carry it outside the binary: `ui/omarchy/manifest.json`, `ui/gnome/metadata.json`, `rpm/agent-mission-control.spec` |
 | `dist.sh` | Builds the release assets into `dist/` (also what CI runs) |
 | `systemd/agent-mission-control.service` | The packaged user unit (`/usr/bin/amc serve -discover`). A test keeps it identical to the one `amc install` writes |
@@ -14,8 +15,9 @@
 
 ## How packages and `amc install` fit together
 
-A package installs `/usr/bin/amc`, `/usr/lib/systemd/user/agent-mission-control.service`
-and the GNOME extension under `/usr/share/gnome-shell/extensions/`. It enables
+A package installs `/usr/bin/amc`, `/usr/lib/systemd/user/agent-mission-control.service`,
+the GNOME extension under `/usr/share/gnome-shell/extensions/` and the per-user
+integrations under `/usr/share/agent-mission-control/{opencode,claude-code,omarchy}`. It enables
 nothing: user services and per-user integrations are each user's call, so
 the post-install message says to run `amc install --enable`.
 
@@ -31,9 +33,17 @@ not packaged mode, so it deliberately overrides the package per user.
 `amc uninstall` disables the packaged service if install enabled it.
 
 The OpenCode, Claude Code and Omarchy integrations are always per user
-(those tools only look in `$HOME`), written from the files embedded in the
-binary. After a package upgrade users rerun `amc install` (the post-upgrade
-message says so; `amc doctor` flags stale copies).
+(those tools only look in `$HOME`). In packaged mode `amc install` makes each
+one a symlink into `/usr/share/agent-mission-control/`, replacing copies an
+earlier install wrote (if unchanged; anything else blocks, `--force` replaces
+it), so a package upgrade updates them along with the daemon. Then only
+the daemon and the shell need a restart (the post-upgrade message says so).
+Following the links was checked: Claude Code loads a symlinked skills-dir
+plugin, OpenCode a symlinked global plugin file, and omarchy-shell scans
+`plugins/*/`, which follows a symlinked folder (the same layout the `ghost`
+package in omarchy-pkgs uses). `amc uninstall` removes only links that still
+point into the package. Outside packaged mode they are copies from the
+files embedded in the binary, and `amc doctor` flags stale ones.
 
 Omarchy: `omarchy plugin add <repo>` clones into the same directory `amc
 install` uses (`~/.config/omarchy/plugins/agent-mission-control`, named after
@@ -73,7 +83,7 @@ Release assets (`X.Y.Z` = tag without `v`):
 | Asset | |
 |---|---|
 | `amc-linux-{amd64,arm64}` | Bare static binaries (README's curl install; unversioned so `latest/download/` works) |
-| `amc-X.Y.Z-linux-{amd64,arm64}.tar.gz` | Binary, unit, GNOME extension, LICENSE, docs: what `-bin` repackages |
+| `amc-X.Y.Z-linux-{amd64,arm64}.tar.gz` | Binary, unit, GNOME extension, `share/agent-mission-control/`, LICENSE, docs: what `-bin` repackages |
 | `agent-mission-control-X.Y.Z.tar.gz` | Source (`git archive` of the tag): the source PKGBUILD's and the spec's `Source0` |
 | `agent-mission-control-bin-X.Y.Z-1-{x86_64,aarch64}.pkg.tar.zst` | Arch packages |
 | `agent-mission-control-X.Y.Z-1.fcNN.{x86_64,aarch64}.rpm`, `gnome-shell-extension-agent-mission-control-X.Y.Z-1.fcNN.noarch.rpm`, `.src.rpm` | Fedora packages |
