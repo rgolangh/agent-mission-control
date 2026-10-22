@@ -4,5 +4,5 @@
   "description": "See which coding-agent sessions (OpenCode, Claude Code) are working, waiting on you, done or stuck, and answer them from the top bar. Needs the agent-mission-control daemon.",
   "shell-version": ["45", "46", "47", "48", "49", "50", "51"],
   "url": "https://github.com/rgolangh/agent-mission-control",
-  "version-name": "0.1.2"
+  "version-name": "0.1.3"
 }

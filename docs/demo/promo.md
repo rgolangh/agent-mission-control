@@ -59,8 +59,8 @@ user opens the panel from the bar, clicks Redis, and all three agents finish."
 >
 > Install (Arch/Omarchy):
 > ```
-> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
-> sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.3/agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
+> sudo pacman -U ./agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
 > amc install --enable
 > ```
 > Repo: https://github.com/rgolangh/agent-mission-control
@@ -83,8 +83,8 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 >
 > **Install**
 > ```bash
-> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
-> sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+> curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.3/agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
+> sudo pacman -U ./agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
 > amc install --enable   # service, agent integrations, bar widget
 > ```
 >

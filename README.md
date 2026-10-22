@@ -54,8 +54,8 @@ widget in `/usr/share/agent-mission-control`. Then, once per user (not as root)
 # Arch / Omarchy: the release's package (aarch64: swap x86_64 for aarch64). Download it
 # first: pacman wants a signature for a URL, but not for a local file.
 # The AUR package agent-mission-control-bin is coming (AUR sign-ups are closed for now).
-curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.2/agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
-sudo pacman -U ./agent-mission-control-bin-0.1.2-1-x86_64.pkg.tar.zst
+curl -LO https://github.com/rgolangh/agent-mission-control/releases/download/v0.1.3/agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
+sudo pacman -U ./agent-mission-control-bin-0.1.3-1-x86_64.pkg.tar.zst
 # Fedora (COPR)
 sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install agent-mission-control
 

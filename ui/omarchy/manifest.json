@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "agent-mission-control",
   "name": "Agent Mission Control",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "Roy Golan",
   "license": "Apache-2.0",
   "description": "State of your coding-agent workflows from the agent-mission-control daemon: who is working, who is waiting on you, and answer them from the bar.",

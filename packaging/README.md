@@ -71,7 +71,7 @@ itself, it only checks that the files match the tag.
 3. **rpm**: in `fedora:$FEDORA` on an x86_64 and an arm64 runner, `rpmbuild -ba`
    from the source tarball (rpmlint output in the log, not fatal).
 4. **release**: one GitHub release with everything and a fresh `SHA256SUMS`.
-5. **omarchy-plugin**: mirrors `ui/omarchy` (see below); not set up, so it only prints a notice.
+5. **omarchy-plugin**: mirrors `ui/omarchy` to the plugin repository (see below).
 
 Pull requests touching `packaging/`, `.copr/`, `release.yml` or `go.mod`
 (and manual runs) run build, arch and rpm at the version in the files, so
@@ -155,22 +155,34 @@ Users: `sudo dnf copr enable rgolan/agent-mission-control && sudo dnf install ag
 The GNOME extension subpackage comes in through a weak dependency when
 `gnome-shell` is installed.
 
-## Omarchy plugin mirror (not set up)
+## Omarchy plugin mirror
 
-Dropped for now: the widget needs the daemon anyway, and `amc install`
-puts it in place at the daemon's version, so a second install route adds
-nothing yet. The job stays in the workflow, inert, in case it is wanted
-later (e.g. to be listed in an Omarchy plugin directory).
+[rgolangh/omarchy-agent-mission-control](https://github.com/rgolangh/omarchy-agent-mission-control)
+is the widget as Omarchy wants a plugin: `omarchy plugin add <git-url>` and the
+[plugin marketplace](https://plugins.omarchy.org) need `manifest.json`, a README
+and a license at the repository root. On each tag the release workflow's
+`omarchy-plugin` job pushes `git subtree split --prefix=ui/omarchy` to the
+mirror's `main` branch and the release tag, using a deploy key that can write
+to that repository only.
 
-`omarchy plugin add <git-url>` wants `manifest.json` at the repository root,
-so the release workflow's `omarchy-plugin` job pushes
-`git subtree split --prefix=ui/omarchy` to the `main` branch (and the release
-tag) of `rgolangh/omarchy-agent-mission-control`. The split is deterministic,
-so each push is a fast-forward; it is never forced (commits made directly in
-the mirror make it fail rather than be lost). Until the secret exists the job
-only prints a notice.
+Keeping it in sync needs nothing by hand:
 
-One-time:
+- The split is deterministic, so each release's split extends the previous
+  one and the push is a fast-forward. It is never forced: a commit made
+  directly in the mirror makes the job fail rather than be lost. Never edit
+  the mirror, only `ui/omarchy/` here.
+- It moves on releases only, so the widget users get always shipped with a
+  daemon release, and `manifest.json`'s version (`version.sh`) is the daemon's.
+- Users update it with `omarchy plugin update` (fetch, fast-forward,
+  revalidate), which our fast-forwards keep working.
+- Rewriting the history of `ui/omarchy/` or moving it breaks the
+  fast-forward. That needs a deliberate one-off forced push.
+
+The plugin id `agent-mission-control` is the directory name, the IPC target
+(`omarchy-shell agent-mission-control …`) and the marketplace's permanent
+identifier: don't change it.
+
+One-time setup (done for `rgolangh/omarchy-agent-mission-control`):
 
 1. Create the empty repository `rgolangh/omarchy-agent-mission-control`
    (public, no README).
