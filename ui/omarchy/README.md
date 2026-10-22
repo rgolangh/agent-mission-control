@@ -1,5 +1,15 @@
 # Agent Mission Control: omarchy-shell bar widget
 
+> **Needs the `amc` daemon**, which this widget only displays: install it from
+> [agent-mission-control](https://github.com/rgolangh/agent-mission-control#install) (`amc install --enable` then
+> sets it up for OpenCode and Claude Code). Without it the widget shows a dim
+> `✕` and how to install it.
+>
+> [rgolangh/omarchy-agent-mission-control](https://github.com/rgolangh/omarchy-agent-mission-control)
+> is a read-only mirror of [`ui/omarchy`](https://github.com/rgolangh/agent-mission-control/tree/main/ui/omarchy),
+> updated on each release. Open issues and pull requests in
+> [agent-mission-control](https://github.com/rgolangh/agent-mission-control).
+
 A bar icon that counts the agent workflows that need you (waiting on an
 answer, stuck or failed; in the theme's urgent color, pulsing while one is
 waiting on an answer, with an orbiting spinner while agents are running), and
@@ -35,9 +45,23 @@ binary into `~/.config/omarchy/plugins/agent-mission-control`, so it always
 matches the daemon it talks to, and places it in the bar. After a package
 upgrade, run `amc install` again to update it.
 
-This directory holds only the QML; without the daemon the widget shows how
-to install it. There is no `omarchy plugin add` repository for it for now
-(see `packaging/README.md`, "Omarchy plugin mirror").
+Or add the widget with Omarchy, and install the daemon as above:
+
+```bash
+omarchy plugin add https://github.com/rgolangh/omarchy-agent-mission-control --enable
+```
+
+Omarchy then updates it (`omarchy plugin update`), and `amc install` leaves
+it alone. Its versions follow the daemon's releases: update both together.
+
+### Remove
+
+```bash
+omarchy plugin remove agent-mission-control   # the widget, if added with omarchy plugin add
+amc uninstall                                 # what amc install put in place (widget, integrations, service)
+```
+
+then remove the package or `~/.local/bin/amc` ([details](https://github.com/rgolangh/agent-mission-control#install)).
 
 ## Install for development (symlink this directory)
 
