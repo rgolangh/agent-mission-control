@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io/fs"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -57,5 +59,45 @@ func TestDesktopUIsCarryLicenseAndOneVersion(t *testing.T) {
 	}
 	if om.Version == "" || om.Version != gn.Version {
 		t.Errorf("omarchy manifest version %q != GNOME metadata version-name %q", om.Version, gn.Version)
+	}
+}
+
+// The package's copies (packaging/install-share.sh, linked by `amc install`
+// in packaged mode) must be exactly what the binary embeds, so a packaged
+// install and a per-user one put the same files in place.
+func TestPackagedShareMatchesEmbeddedAssets(t *testing.T) {
+	dest := t.TempDir()
+	if out, err := exec.Command("packaging/install-share.sh", dest).CombinedOutput(); err != nil {
+		t.Fatalf("install-share.sh: %v\n%s", err, out)
+	}
+	embedded := map[string]string{ // share dir -> asset dir
+		"opencode":    "integrations/opencode",
+		"claude-code": "integrations/claude-code",
+		"omarchy":     "ui/omarchy",
+	}
+	got := map[string]bool{}
+	filepath.WalkDir(dest, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(dest, p)
+			got[filepath.ToSlash(rel)] = true
+		}
+		return nil
+	})
+	for share, src := range embedded {
+		fs.WalkDir(Assets, src, func(p string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			rel := share + p[len(src):]
+			want, _ := fs.ReadFile(Assets, p)
+			if have, err := os.ReadFile(filepath.Join(dest, rel)); err != nil || !bytes.Equal(have, want) {
+				t.Errorf("%s: not installed as embedded (%v)", rel, err)
+			}
+			delete(got, rel)
+			return nil
+		})
+	}
+	for rel := range got {
+		t.Errorf("%s: installed but not embedded", rel)
 	}
 }
