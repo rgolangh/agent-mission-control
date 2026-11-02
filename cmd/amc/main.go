@@ -53,9 +53,9 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = serve(os.Args[2:])
-	case "status":
+	case "status", "list":
 		err = status(os.Args[2:])
-	case "show":
+	case "show", "get":
 		err = show(os.Args[2:])
 	case "answer":
 		err = answer(os.Args[2:])
@@ -91,10 +91,10 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
-  amc status [-addr http://127.0.0.1:4200] [-json]
-  amc show   [-addr URL] [-json] <id>            pending asks + history
+  amc list   [-addr URL] [-json]                 list workflows (alias: status)
+  amc get    [-addr URL] [-json] <id>            pending asks + history (alias: show)
   amc answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
-  amc send   [-addr URL] <id> <text...>          send free text
+  amc send   [-addr URL] <id> <text...>          send free text when no ask is pending
   amc mcp    [-addr URL]                         MCP server on stdio (for agents)
   amc install   [-dry-run] [-only a,b] [-enable] [-force]
                                     binary, user service, agent plugins, desktop UI
