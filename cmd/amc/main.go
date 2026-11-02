@@ -129,8 +129,13 @@ func serve(args []string) error {
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
 	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
 	codexSocket := fs.String("codex-socket", "", "watch a shared Codex app-server Unix socket (or 'default')")
-	codexCacheWarning := fs.Duration("codex-cache-warning", 25*time.Minute, "warn after this long since observed cached-token usage (0 disables)")
+	cacheLifetime := fs.Duration("cache-lifetime", 30*time.Minute, "assumed cache lifetime for warning estimates")
+	cacheLead := fs.Duration("cache-warning-lead", 5*time.Minute, "warn this long before the assumed cache lifetime (0 disables)")
 	_ = fs.Parse(args)
+	warningAfter, err := cacheWarningAfter(*cacheLifetime, *cacheLead)
+	if err != nil {
+		return err
+	}
 	if *codexSocket == "default" {
 		home := os.Getenv("CODEX_HOME")
 		if home == "" {
@@ -151,14 +156,34 @@ func serve(args []string) error {
 	defer stop()
 
 	store := daemon.NewStore()
+	store.SetCachePolicy(*cacheLifetime, warningAfter)
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(os.Stderr, "%s [mc] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
 	}
 	if *codexSocket != "" {
 		client := codex.New(*codexSocket, store, logf)
-		client.CacheWarningAfter = *codexCacheWarning
 		go client.Run(ctx)
 		logf("watching Codex at %s", *codexSocket)
+	}
+	if warningAfter > 0 {
+		go func() {
+			tick := time.NewTicker(3 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-tick.C:
+					for _, w := range store.CacheWarnings(now) {
+						if w.Overdue {
+							logf("%s cache may already be cold (estimate; actual expiry unknown)", w.WorkflowID)
+						} else {
+							logf("%s cache may expire soon; send a follow-up if needed (estimate; actual expiry unknown)", w.WorkflowID)
+						}
+					}
+				}
+			}
+		}()
 	}
 
 	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
@@ -307,6 +332,16 @@ func serve(args []string) error {
 	}()
 
 	return listenAndServe(ctx, mux, *listen, logf)
+}
+
+func cacheWarningAfter(lifetime, lead time.Duration) (time.Duration, error) {
+	if lifetime <= 0 || lead < 0 || lead >= lifetime {
+		return 0, fmt.Errorf("cache warning lead must be non-negative and shorter than its positive assumed lifetime")
+	}
+	if lead == 0 {
+		return 0, nil
+	}
+	return lifetime - lead, nil
 }
 
 // newOpenCodeClient only gives a password to a directly watched URL

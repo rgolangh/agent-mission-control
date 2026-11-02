@@ -34,24 +34,21 @@ type pendingAsk struct {
 	reject    string
 }
 type Client struct {
-	Socket            string
-	Store             *daemon.Store
-	Log               func(string, ...any)
-	CacheWarningAfter time.Duration
-	mu                sync.Mutex
-	conn              *websocket.Conn
-	calls             map[string]chan message
-	asks              map[string]pendingAsk
-	turns             map[string]string
-	subscribed        map[string]bool
-	cache             map[string]adapter.TokenUsage
-	warned            map[string]bool
-	fileChanges       map[string]string
-	next              atomic.Int64
+	Socket      string
+	Store       *daemon.Store
+	Log         func(string, ...any)
+	mu          sync.Mutex
+	conn        *websocket.Conn
+	calls       map[string]chan message
+	asks        map[string]pendingAsk
+	turns       map[string]string
+	subscribed  map[string]bool
+	fileChanges map[string]string
+	next        atomic.Int64
 }
 
 func New(socket string, store *daemon.Store, log func(string, ...any)) *Client {
-	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, subscribed: map[string]bool{}, cache: map[string]adapter.TokenUsage{}, warned: map[string]bool{}, fileChanges: map[string]string{}}
+	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, subscribed: map[string]bool{}, fileChanges: map[string]string{}}
 }
 func (c *Client) origin() string { return "codex:" + c.Socket }
 func (c *Client) emit(ev adapter.SourceEvent) {
@@ -147,7 +144,6 @@ func (c *Client) run(ctx context.Context) error {
 		case err := <-done:
 			return err
 		case <-tick.C:
-			c.warnCache(time.Now())
 			if err := c.sync(ctx); err != nil {
 				return err
 			}
@@ -320,11 +316,7 @@ func (c *Client) dispatch(m message) {
 		c.mu.Unlock()
 		return
 	case "thread/tokenUsage/updated":
-		ev.TokenUsage = &adapter.TokenUsage{Input: p.TokenUsage.Last.Input, CachedInput: p.TokenUsage.Last.Cached, Output: p.TokenUsage.Last.Output, ObservedAt: time.Now(), WarningAfterSeconds: int64(c.CacheWarningAfter / time.Second)}
-		c.mu.Lock()
-		c.cache[p.ThreadID] = *ev.TokenUsage
-		delete(c.warned, p.ThreadID)
-		c.mu.Unlock()
+		ev.TokenUsage = &adapter.TokenUsage{Input: p.TokenUsage.Last.Input, CachedInput: p.TokenUsage.Last.Cached, Output: p.TokenUsage.Last.Output, ObservedAt: time.Now()}
 	case "turn/started":
 		c.mu.Lock()
 		c.turns[p.ThreadID] = p.Turn.ID
@@ -485,23 +477,6 @@ func (c *Client) dispatch(m message) {
 	c.emit(ev)
 }
 
-func (c *Client) warnCache(now time.Time) {
-	if c.CacheWarningAfter <= 0 {
-		return
-	}
-	c.mu.Lock()
-	var due []string
-	for id, usage := range c.cache {
-		if usage.CachedInput > 0 && !c.warned[id] && now.Sub(usage.ObservedAt) >= c.CacheWarningAfter {
-			c.warned[id] = true
-			due = append(due, id)
-		}
-	}
-	c.mu.Unlock()
-	for _, id := range due {
-		c.Log("codex:%s last used cached tokens at least %s ago; cache may be cold (estimate, expiry unknown)", id, c.CacheWarningAfter)
-	}
-}
 func (c *Client) Answer(ctx context.Context, source string, ask adapter.Ask, answers [][]string) error {
 	c.mu.Lock()
 	p, ok := c.asks[source+":"+ask.ID]

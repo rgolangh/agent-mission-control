@@ -28,11 +28,12 @@ type Capabilities struct {
 }
 
 type TokenUsage struct {
-	Input               int64     `json:"input"`
-	CachedInput         int64     `json:"cached_input"`
-	Output              int64     `json:"output"`
-	ObservedAt          time.Time `json:"observed_at"`
-	WarningAfterSeconds int64     `json:"warning_after_seconds,omitempty"`
+	Input                  int64     `json:"input"`
+	CachedInput            int64     `json:"cached_input"`
+	Output                 int64     `json:"output"`
+	ObservedAt             time.Time `json:"observed_at"`
+	WarningAfterSeconds    int64     `json:"warning_after_seconds,omitempty"`
+	AssumedLifetimeSeconds int64     `json:"assumed_lifetime_seconds,omitempty"`
 }
 
 // SourceEvent is one normalized update from one adapter about one source.

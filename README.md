@@ -36,12 +36,16 @@ File approvals are available only when the complete proposed diff was observed
 and is at most 32 KiB; otherwise, review and answer in Codex.
 For a Codex app-server using its default control socket, pass
 `-codex-socket default` instead of a path. This also honors `CODEX_HOME`.
-`amc show` displays the most recently observed token counts, including cached
-input tokens. After 25 minutes without a newer usage update, the daemon logs
-an estimated cache-age warning if that request used cached tokens. Configure
-the threshold with `-codex-cache-warning` (for example `15m`), or disable it
-with `-codex-cache-warning=0`. The backend does not expose cache expiry, so
-this warning does not establish whether the next request will hit the cache.
+
+For adapters that report token usage (currently Codex), `amc show` displays the
+most recently observed counts, including cached input tokens. The daemon
+estimates an expiry 30 minutes after the latest
+usage update and warns five minutes before it, if that request used cached
+tokens. Desktop clients notify once per observation. Configure the assumptions with `-cache-lifetime` and
+`-cache-warning-lead`, or disable warnings with
+`-cache-warning-lead=0`. The backend does not expose cache expiry, so
+the warning cannot guarantee the cache is still warm or that the next request
+will hit it. A follow-up itself uses tokens; send one only if it is useful.
 
 Ways to look at it:
 - **CLI:** `status`, `show`, `answer`, `send`.

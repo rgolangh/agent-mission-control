@@ -43,7 +43,11 @@ func show(args []string) error {
 	if wf.TokenUsage != nil {
 		fmt.Printf("  tokens   last request: %d input (%d cached), %d output\n", wf.TokenUsage.Input, wf.TokenUsage.CachedInput, wf.TokenUsage.Output)
 		if wf.TokenUsage.CachedInput > 0 && wf.TokenUsage.WarningAfterSeconds > 0 && time.Since(wf.TokenUsage.ObservedAt) >= time.Duration(wf.TokenUsage.WarningAfterSeconds)*time.Second {
-			fmt.Println("  cache    last cached-token usage exceeded the configured age; cache may be cold (estimate)")
+			if wf.TokenUsage.AssumedLifetimeSeconds > 0 && time.Since(wf.TokenUsage.ObservedAt) >= time.Duration(wf.TokenUsage.AssumedLifetimeSeconds)*time.Second {
+				fmt.Println("  cache    may already be cold (estimate, actual expiry unknown)")
+			} else {
+				fmt.Println("  cache    may expire soon; send a follow-up if needed (estimate, actual expiry unknown)")
+			}
 		}
 	}
 	fmt.Printf("  status   %s (%s)\n", wf.Status, age(wf.UpdatedAt))

@@ -25,22 +25,6 @@ func event(t *testing.T, c *Client, raw string) {
 	c.dispatch(m)
 }
 
-func TestCacheWarningIsDeterministicAndDoesNotRepeat(t *testing.T) {
-	var logs int
-	c := New("/tmp/codex", daemon.NewStore(), func(string, ...any) { logs++ })
-	c.CacheWarningAfter = 25 * time.Minute
-	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	c.cache["thread"] = adapter.TokenUsage{CachedInput: 800, ObservedAt: now}
-	c.warnCache(now.Add(24 * time.Minute))
-	if logs != 0 {
-		t.Fatal("warning before threshold")
-	}
-	c.warnCache(now.Add(25 * time.Minute))
-	c.warnCache(now.Add(26 * time.Minute))
-	if logs != 1 {
-		t.Fatalf("got %d warnings, want one", logs)
-	}
-}
 func TestApprovalAndResolution(t *testing.T) {
 	s := daemon.NewStore()
 	c := New("/tmp/codex", s, func(string, ...any) {})
