@@ -34,7 +34,8 @@ amc serve -codex-socket /tmp/codex-amc.sock
 ```
 
 The adapter watches sessions loaded on that server. Existing sessions in a
-different Codex process are not automatically attached. Structured Codex
+different Codex process are not automatically attached. Codex subagents are
+excluded because Codex does not accept direct messages to them. Structured Codex
 questions use an experimental app-server interface. Only the listed approval
 choices are offered; other approval request types must be answered in Codex.
 File approvals are available only when the complete proposed diff was observed

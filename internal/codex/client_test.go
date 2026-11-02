@@ -91,6 +91,8 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{}})
 			case "thread/loaded/list":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"data": []string{"test-thread"}}})
+			case "thread/read":
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "source": "cli"}}})
 			case "thread/resume":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "status": map[string]any{"type": "active"}}}})
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": 0, "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": "test-thread", "command": "printf test", "availableDecisions": []string{"accept", "cancel"}}})
@@ -128,6 +130,21 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 	waitFor(func() bool { w, e := s.Resolve("codex:test-thread"); return e == nil && len(w.Pending) == 0 })
 	if _, err := s.Answer(ctx, "codex:test-thread", daemon.AnswerRequest{Choice: "once"}); err == nil {
 		t.Fatal("answered request that another client resolved")
+	}
+}
+
+func TestIdentifySubagent(t *testing.T) {
+	for _, tc := range []struct {
+		payload string
+		want    bool
+	}{
+		{`{"thread":{"source":"cli","parentThreadId":null}}`, false},
+		{`{"thread":{"source":"cli","parentThreadId":"root"}}`, true},
+		{`{"thread":{"source":{"subAgent":{"thread_spawn":{}}}}}`, true},
+	} {
+		if got := isSubagent(json.RawMessage(tc.payload)); got != tc.want {
+			t.Errorf("%s: got %v", tc.payload, got)
+		}
 	}
 }
 func TestAsyncQuestionAnsweredInTerminal(t *testing.T) {

@@ -43,12 +43,13 @@ type Client struct {
 	asks        map[string]pendingAsk
 	turns       map[string]string
 	subscribed  map[string]bool
+	subagents   map[string]bool
 	fileChanges map[string]string
 	next        atomic.Int64
 }
 
 func New(socket string, store *daemon.Store, log func(string, ...any)) *Client {
-	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, subscribed: map[string]bool{}, fileChanges: map[string]string{}}
+	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, subscribed: map[string]bool{}, subagents: map[string]bool{}, fileChanges: map[string]string{}}
 }
 func (c *Client) origin() string { return "codex:" + c.Socket }
 func (c *Client) emit(ev adapter.SourceEvent) {
@@ -101,6 +102,7 @@ func (c *Client) run(ctx context.Context) error {
 	c.asks = map[string]pendingAsk{}
 	c.turns = map[string]string{}
 	c.subscribed = map[string]bool{}
+	c.subagents = map[string]bool{}
 	c.fileChanges = map[string]string{}
 	c.mu.Unlock()
 	defer func() {
@@ -199,6 +201,17 @@ func (c *Client) sync(ctx context.Context) error {
 		if known {
 			continue
 		}
+		read, err := c.call(ctx, "thread/read", map[string]any{"threadId": id})
+		if err != nil {
+			continue
+		}
+		if isSubagent(read.Result) {
+			c.mu.Lock()
+			c.subagents[id], c.subscribed[id] = true, true
+			c.mu.Unlock()
+			c.Store.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: id, Gone: true, Timestamp: time.Now()})
+			continue
+		}
 		r, err := c.call(ctx, "thread/resume", map[string]any{"threadId": id, "excludeTurns": true})
 		if err != nil {
 			continue
@@ -228,6 +241,22 @@ func (c *Client) sync(ctx context.Context) error {
 		c.emit(adapter.SourceEvent{SourceID: id, Title: x.Thread.Name, Location: x.Thread.Cwd, Status: status, Message: "connected"})
 	}
 	return nil
+}
+
+func isSubagent(raw json.RawMessage) bool {
+	var response struct {
+		Thread struct {
+			ParentThreadID string          `json:"parentThreadId"`
+			Source         json.RawMessage `json:"source"`
+		} `json:"thread"`
+	}
+	if json.Unmarshal(raw, &response) != nil {
+		return false
+	}
+	var source map[string]json.RawMessage
+	_ = json.Unmarshal(response.Thread.Source, &source)
+	_, isChild := source["subAgent"]
+	return response.Thread.ParentThreadID != "" || isChild
 }
 func (c *Client) dispatch(m message) {
 	if m.Method == "" && len(m.ID) > 0 {
@@ -293,6 +322,12 @@ func (c *Client) dispatch(m message) {
 		} `json:"status"`
 	}
 	if json.Unmarshal(m.Params, &p) != nil || p.ThreadID == "" {
+		return
+	}
+	c.mu.Lock()
+	child := c.subagents[p.ThreadID]
+	c.mu.Unlock()
+	if child {
 		return
 	}
 	ev := adapter.SourceEvent{SourceID: p.ThreadID}
