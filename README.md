@@ -19,8 +19,13 @@ you (or an orchestrating agent, over MCP) answer it.
 | **Claude Code** | A hooks-only Claude Code plugin pushes session events to the daemon | See state, questions and permission prompts (answer in the terminal; Claude Code has no input API) |
 | **Codex** | Daemon connects to a shared Codex app-server Unix socket | See state, answer questions, approve or reject command and supported file requests, send follow-ups |
 
-To connect a Codex terminal through a shared app-server, start the server and
-terminal in separate shells, then point the daemon at its socket:
+With `amc install --enable`, the AMC service discovers Codex's default shared
+app-server socket automatically when it appears. Start Codex normally on a
+version configured to use its shared daemon. `amc status` and the desktop UI
+then work without a separate AMC terminal. Codex versions or sessions using a
+private app-server are not discovered through this socket.
+
+To connect a Codex terminal through an explicitly selected shared app-server:
 
 ```bash
 codex app-server --listen unix:///tmp/codex-amc.sock
@@ -66,8 +71,8 @@ with no activity at all for 15 minutes is flagged as hung.
 ## Requirements
 
 - Linux (discovery and liveness read `/proc`)
-- Go 1.27+ to build (standard library only, no third-party modules)
-- OpenCode and/or Claude Code
+- Go 1.27+ to build
+- OpenCode, Claude Code, and/or Codex
 
 ## Install
 

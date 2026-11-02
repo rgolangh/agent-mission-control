@@ -124,7 +124,7 @@ func serve(args []string) error {
 	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for non-discovered OpenCode servers")
 	var servers stringList
 	fs.Var(&servers, "opencode", "OpenCode server base URL (repeatable; default http://localhost:4096)")
-	discover := fs.Bool("discover", false, "also find and attach to running `opencode --port N` servers automatically (Linux)")
+	discover := fs.Bool("discover", false, "automatically discover local OpenCode servers and the default Codex app-server socket (Linux)")
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
 	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
@@ -132,21 +132,19 @@ func serve(args []string) error {
 	cacheLifetime := fs.Duration("cache-lifetime", 30*time.Minute, "assumed cache lifetime for warning estimates")
 	cacheLead := fs.Duration("cache-warning-lead", 5*time.Minute, "warn this long before the assumed cache lifetime (0 disables)")
 	_ = fs.Parse(args)
+	if *discover && *discoverEvery <= 0 {
+		return fmt.Errorf("discover interval must be positive")
+	}
 	warningAfter, err := cacheWarningAfter(*cacheLifetime, *cacheLead)
 	if err != nil {
 		return err
 	}
+	defaultCodexSocket, err := codexDefaultSocket()
+	if err != nil && (*codexSocket == "default" || *discover) {
+		return err
+	}
 	if *codexSocket == "default" {
-		home := os.Getenv("CODEX_HOME")
-		if home == "" {
-			var err error
-			home, err = os.UserHomeDir()
-			if err != nil {
-				return fmt.Errorf("finding Codex home: %w", err)
-			}
-			home = filepath.Join(home, ".codex")
-		}
-		*codexSocket = filepath.Join(home, "app-server-control", "app-server-control.sock")
+		*codexSocket = defaultCodexSocket
 	}
 	if len(servers) == 0 && !*discover {
 		servers = stringList{"http://localhost:4096"}
@@ -164,6 +162,23 @@ func serve(args []string) error {
 		client := codex.New(*codexSocket, store, logf)
 		go client.Run(ctx)
 		logf("watching Codex at %s", *codexSocket)
+	} else if *discover {
+		go func() {
+			tick := time.NewTicker(*discoverEvery)
+			defer tick.Stop()
+			for {
+				if info, err := os.Stat(defaultCodexSocket); err == nil && info.Mode()&os.ModeSocket != 0 {
+					logf("discovered Codex app-server at %s", defaultCodexSocket)
+					codex.New(defaultCodexSocket, store, logf).Run(ctx)
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
 	}
 	if warningAfter > 0 {
 		go func() {
@@ -342,6 +357,19 @@ func cacheWarningAfter(lifetime, lead time.Duration) (time.Duration, error) {
 		return 0, nil
 	}
 	return lifetime - lead, nil
+}
+
+func codexDefaultSocket() (string, error) {
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("finding Codex home: %w", err)
+		}
+		home = filepath.Join(home, ".codex")
+	}
+	return filepath.Join(home, "app-server-control", "app-server-control.sock"), nil
 }
 
 // newOpenCodeClient only gives a password to a directly watched URL

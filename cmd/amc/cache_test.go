@@ -1,9 +1,19 @@
 package main
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestCodexDefaultSocketUsesCodexHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	got, err := codexDefaultSocket()
+	if err != nil || got != filepath.Join(home, "app-server-control", "app-server-control.sock") {
+		t.Fatalf("socket %q: %v", got, err)
+	}
+}
 
 func TestCacheWarningLead(t *testing.T) {
 	for _, tc := range []struct {
