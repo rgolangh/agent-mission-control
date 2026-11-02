@@ -27,6 +27,14 @@ type Capabilities struct {
 	CanReceiveInput bool `json:"can_receive_input"` // true if SendInput below will actually do something
 }
 
+type TokenUsage struct {
+	Input               int64     `json:"input"`
+	CachedInput         int64     `json:"cached_input"`
+	Output              int64     `json:"output"`
+	ObservedAt          time.Time `json:"observed_at"`
+	WarningAfterSeconds int64     `json:"warning_after_seconds,omitempty"`
+}
+
 // SourceEvent is one normalized update from one adapter about one source.
 // This is the only struct that crosses the adapter -> event bus boundary.
 type SourceEvent struct {
@@ -41,6 +49,7 @@ type SourceEvent struct {
 	Parent       string       `json:"parent,omitempty"`      // source ID (same adapter) of the source that spawned this one, e.g. a subagent's parent session
 	Timestamp    time.Time    `json:"timestamp"`
 	Capabilities Capabilities `json:"capabilities"`
+	TokenUsage   *TokenUsage  `json:"token_usage,omitempty"`
 	Ask          *Ask         `json:"ask,omitempty"`      // set when the source became blocked on something the user can answer
 	Resolves     string       `json:"resolves,omitempty"` // id of an Ask that was answered or rejected
 	Gone         bool         `json:"gone,omitempty"`     // the source no longer exists (e.g. deleted); the daemon drops its workflow

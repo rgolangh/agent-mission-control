@@ -17,6 +17,31 @@ you (or an orchestrating agent, over MCP) answer it.
 |---|---|---|
 | **OpenCode** | Daemon reads OpenCode's own HTTP/SSE API. A tiny plugin gives a plain `opencode` an authenticated local port so every session is discovered automatically | See state, answer questions, approve or reject permissions, send follow-ups |
 | **Claude Code** | A hooks-only Claude Code plugin pushes session events to the daemon | See state, questions and permission prompts (answer in the terminal; Claude Code has no input API) |
+| **Codex** | Daemon connects to a shared Codex app-server Unix socket | See state, answer questions, approve or reject command and supported file requests, send follow-ups |
+
+To connect a Codex terminal through a shared app-server, start the server and
+terminal in separate shells, then point the daemon at its socket:
+
+```bash
+codex app-server --listen unix:///tmp/codex-amc.sock
+codex --remote unix:///tmp/codex-amc.sock
+amc serve -codex-socket /tmp/codex-amc.sock
+```
+
+The adapter watches sessions loaded on that server. Existing sessions in a
+different Codex process are not automatically attached. Structured Codex
+questions use an experimental app-server interface. Only the listed approval
+choices are offered; other approval request types must be answered in Codex.
+File approvals are available only when the complete proposed diff was observed
+and is at most 32 KiB; otherwise, review and answer in Codex.
+For a Codex app-server using its default control socket, pass
+`-codex-socket default` instead of a path. This also honors `CODEX_HOME`.
+`amc show` displays the most recently observed token counts, including cached
+input tokens. After 25 minutes without a newer usage update, the daemon logs
+an estimated cache-age warning if that request used cached tokens. Configure
+the threshold with `-codex-cache-warning` (for example `15m`), or disable it
+with `-codex-cache-warning=0`. The backend does not expose cache expiry, so
+this warning does not establish whether the next request will hit the cache.
 
 Ways to look at it:
 - **CLI:** `status`, `show`, `answer`, `send`.

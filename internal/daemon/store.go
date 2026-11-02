@@ -46,6 +46,7 @@ type Workflow struct {
 	Title        string               `json:"title,omitempty"`
 	Location     string               `json:"location,omitempty"`
 	Capabilities adapter.Capabilities `json:"capabilities"`
+	TokenUsage   *adapter.TokenUsage  `json:"token_usage,omitempty"`
 	Pending      []adapter.Ask        `json:"pending,omitempty"` // asks the source is blocked on, oldest first
 	Origin       string               `json:"origin,omitempty"`  // which server/instance reports this workflow
 	Stale        bool                 `json:"stale,omitempty"`   // the origin is unreachable: state may be out of date and input can't be delivered
@@ -167,6 +168,10 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	}
 	if ev.Location != "" {
 		w.Location = ev.Location
+	}
+	if ev.TokenUsage != nil {
+		usage := *ev.TokenUsage
+		w.TokenUsage = &usage
 	}
 	if ev.PID > 0 && (len(w.PIDs) == 0 || w.PIDs[0] != ev.PID) {
 		w.PIDs = procs.Ancestors(ev.PID)

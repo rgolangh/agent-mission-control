@@ -40,6 +40,12 @@ func show(args []string) error {
 	fmt.Printf("%s\n", wf.ID)
 	fmt.Printf("  title    %s\n", orDash(wf.Title))
 	fmt.Printf("  where    %s\n", tilde(wf.Location))
+	if wf.TokenUsage != nil {
+		fmt.Printf("  tokens   last request: %d input (%d cached), %d output\n", wf.TokenUsage.Input, wf.TokenUsage.CachedInput, wf.TokenUsage.Output)
+		if wf.TokenUsage.CachedInput > 0 && wf.TokenUsage.WarningAfterSeconds > 0 && time.Since(wf.TokenUsage.ObservedAt) >= time.Duration(wf.TokenUsage.WarningAfterSeconds)*time.Second {
+			fmt.Println("  cache    last cached-token usage exceeded the configured age; cache may be cold (estimate)")
+		}
+	}
 	fmt.Printf("  status   %s (%s)\n", wf.Status, age(wf.UpdatedAt))
 	fmt.Printf("  message  %s\n", wf.Message)
 	if wf.Stale {

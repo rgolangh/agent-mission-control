@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
 	"github.com/rgolangh/agent-mission-control/internal/claudecode"
+	"github.com/rgolangh/agent-mission-control/internal/codex"
 	"github.com/rgolangh/agent-mission-control/internal/daemon"
 	"github.com/rgolangh/agent-mission-control/internal/discovery"
 	"github.com/rgolangh/agent-mission-control/internal/opencode"
@@ -90,7 +92,7 @@ func main() {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
+  amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-codex-socket PATH] [-discover] [-log-text]
   amc status [-addr http://127.0.0.1:4200] [-json]
   amc show   [-addr URL] [-json] <id>            pending asks + history
   amc answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
@@ -126,7 +128,21 @@ func serve(args []string) error {
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
 	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
+	codexSocket := fs.String("codex-socket", "", "watch a shared Codex app-server Unix socket (or 'default')")
+	codexCacheWarning := fs.Duration("codex-cache-warning", 25*time.Minute, "warn after this long since observed cached-token usage (0 disables)")
 	_ = fs.Parse(args)
+	if *codexSocket == "default" {
+		home := os.Getenv("CODEX_HOME")
+		if home == "" {
+			var err error
+			home, err = os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("finding Codex home: %w", err)
+			}
+			home = filepath.Join(home, ".codex")
+		}
+		*codexSocket = filepath.Join(home, "app-server-control", "app-server-control.sock")
+	}
 	if len(servers) == 0 && !*discover {
 		servers = stringList{"http://localhost:4096"}
 	}
@@ -137,6 +153,12 @@ func serve(args []string) error {
 	store := daemon.NewStore()
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(os.Stderr, "%s [mc] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
+	}
+	if *codexSocket != "" {
+		client := codex.New(*codexSocket, store, logf)
+		client.CacheWarningAfter = *codexCacheWarning
+		go client.Run(ctx)
+		logf("watching Codex at %s", *codexSocket)
 	}
 
 	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
