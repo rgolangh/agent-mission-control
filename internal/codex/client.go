@@ -184,17 +184,60 @@ func (c *Client) call(ctx context.Context, method string, params any) (message, 
 	}
 }
 func (c *Client) sync(ctx context.Context) error {
-	m, err := c.call(ctx, "thread/loaded/list", map[string]any{})
-	if err != nil {
-		return err
+	loaded := map[string]bool{}
+	cursor := ""
+	for {
+		params := map[string]any{}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		m, err := c.call(ctx, "thread/loaded/list", params)
+		if err != nil {
+			return err
+		}
+		var list struct {
+			Data       []string `json:"data"`
+			NextCursor *string  `json:"nextCursor"`
+		}
+		if err = json.Unmarshal(m.Result, &list); err != nil {
+			return err
+		}
+		for _, id := range list.Data {
+			loaded[id] = true
+		}
+		if list.NextCursor == nil || *list.NextCursor == "" {
+			break
+		}
+		if *list.NextCursor == cursor {
+			return fmt.Errorf("Codex returned a repeated thread cursor")
+		}
+		cursor = *list.NextCursor
 	}
-	var list struct {
-		Data []string `json:"data"`
+	c.mu.Lock()
+	var removed []string
+	for id := range c.subscribed {
+		if !loaded[id] {
+			delete(c.subscribed, id)
+			delete(c.subagents, id)
+			delete(c.turns, id)
+			for key := range c.asks {
+				if strings.HasPrefix(key, id+":") {
+					delete(c.asks, key)
+				}
+			}
+			for key := range c.fileChanges {
+				if strings.HasPrefix(key, id+":") {
+					delete(c.fileChanges, key)
+				}
+			}
+			removed = append(removed, id)
+		}
 	}
-	if err = json.Unmarshal(m.Result, &list); err != nil {
-		return err
+	c.mu.Unlock()
+	for _, id := range removed {
+		c.Store.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: id, Gone: true, Timestamp: time.Now()})
 	}
-	for _, id := range list.Data {
+	for id := range loaded {
 		c.mu.Lock()
 		known := c.subscribed[id]
 		c.mu.Unlock()
@@ -329,6 +372,9 @@ func (c *Client) dispatch(m message) {
 	c.mu.Unlock()
 	if child {
 		return
+	}
+	if strings.HasPrefix(m.Method, "item/") || strings.HasPrefix(m.Method, "turn/") {
+		c.Store.Touch("codex:"+p.ThreadID, time.Now())
 	}
 	ev := adapter.SourceEvent{SourceID: p.ThreadID}
 	switch m.Method {
@@ -568,6 +614,24 @@ func (c *Client) SendText(ctx context.Context, source, text string) error {
 	c.mu.Lock()
 	turn := c.turns[source]
 	c.mu.Unlock()
+	if turn == "" {
+		result, err := c.call(ctx, "thread/turns/list", map[string]any{"threadId": source, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"})
+		if err != nil {
+			return fmt.Errorf("cannot determine active Codex turn: %w", err)
+		}
+		var turns struct {
+			Data []struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(result.Result, &turns); err != nil {
+			return fmt.Errorf("reading Codex turns: %w", err)
+		}
+		if len(turns.Data) > 0 && turns.Data[0].Status == "inProgress" {
+			turn = turns.Data[0].ID
+		}
+	}
 	params := map[string]any{"threadId": source, "input": []any{map[string]any{"type": "text", "text": text}}}
 	method := "turn/start"
 	if turn != "" {

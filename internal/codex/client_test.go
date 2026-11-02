@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -74,6 +75,8 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	accepted := make(chan *websocket.Conn, 2)
+	steered := make(chan bool, 1)
+	var hidden atomic.Bool
 	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -90,12 +93,25 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 			case "initialize":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{}})
 			case "thread/loaded/list":
-				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"data": []string{"test-thread"}}})
+				ids := []string{"test-thread"}
+				if hidden.Load() {
+					ids = nil
+				}
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"data": ids}})
 			case "thread/read":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "source": "cli"}}})
 			case "thread/resume":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "status": map[string]any{"type": "active"}}}})
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": 0, "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": "test-thread", "command": "printf test", "availableDecisions": []string{"accept", "cancel"}}})
+			case "thread/turns/list":
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"data": []any{map[string]any{"id": "active-turn", "status": "inProgress"}}}})
+			case "turn/steer":
+				var params struct {
+					Expected string `json:"expectedTurnId"`
+				}
+				_ = json.Unmarshal(m.Params, &params)
+				steered <- params.Expected == "active-turn"
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"turnId": "active-turn"}})
 			}
 		}
 	})}
@@ -130,6 +146,31 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 	waitFor(func() bool { w, e := s.Resolve("codex:test-thread"); return e == nil && len(w.Pending) == 0 })
 	if _, err := s.Answer(ctx, "codex:test-thread", daemon.AnswerRequest{Choice: "once"}); err == nil {
 		t.Fatal("answered request that another client resolved")
+	}
+	if err := s.SendText(ctx, "codex:test-thread", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if !<-steered {
+		t.Fatal("did not steer the active turn")
+	}
+	hidden.Store(true)
+	if err := c.sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Resolve("codex:test-thread"); err == nil {
+		t.Fatal("unloaded session remains listed")
+	}
+}
+
+func TestStreamingEventsRefreshActivity(t *testing.T) {
+	s := daemon.NewStore()
+	c := New("/tmp/codex", s, func(string, ...any) {})
+	old := time.Now().Add(-time.Hour)
+	s.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: "thread", Status: adapter.StatusRunning, Timestamp: old})
+	event(t, c, `{"method":"item/agentMessage/delta","params":{"threadId":"thread","delta":"working"}}`)
+	w, _ := s.Resolve("codex:thread")
+	if !w.LastActivity.After(old) {
+		t.Fatal("streaming event did not refresh activity")
 	}
 }
 
