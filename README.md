@@ -21,7 +21,7 @@ you (or an orchestrating agent, over MCP) answer it.
 
 With `amc install --enable`, the AMC service discovers Codex's default shared
 app-server socket automatically when it appears. Start Codex normally on a
-version configured to use its shared daemon. `amc status` and the desktop UI
+version configured to use its shared daemon. `amc list` and the desktop UI
 then work without a separate AMC terminal. Codex versions or sessions using a
 private app-server are not discovered through this socket.
 
@@ -43,7 +43,7 @@ and is at most 32 KiB; otherwise, review and answer in Codex.
 For a Codex app-server using its default control socket, pass
 `-codex-socket default` instead of a path. This also honors `CODEX_HOME`.
 
-For adapters that report token usage (currently Codex), `amc show` displays the
+For adapters that report token usage (currently Codex), `amc get` displays the
 most recently observed counts, including cached input tokens. The daemon
 estimates an expiry 30 minutes after the latest
 usage update and warns five minutes before it, if that request used cached
