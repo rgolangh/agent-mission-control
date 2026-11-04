@@ -21,7 +21,7 @@ you (or an orchestrating agent, over MCP) answer it.
 
 With `amc install --enable`, the AMC service discovers Codex's default shared
 app-server socket automatically when it appears. Start Codex normally on a
-version configured to use its shared daemon. `amc status` and the desktop UI
+version configured to use its shared daemon. `amc list` and the desktop UI
 then work without a separate AMC terminal. Codex versions or sessions using a
 private app-server are not discovered through this socket.
 
@@ -43,7 +43,7 @@ and is at most 32 KiB; otherwise, review and answer in Codex.
 For a Codex app-server using its default control socket, pass
 `-codex-socket default` instead of a path. This also honors `CODEX_HOME`.
 
-For adapters that report token usage (currently Codex), `amc show` displays the
+For adapters that report token usage (currently Codex), `amc get` displays the
 most recently observed counts, including cached input tokens. The daemon
 estimates an expiry 30 minutes after the latest
 usage update and warns five minutes before it, if that request used cached
@@ -149,11 +149,17 @@ removes exactly what was installed and unchanged.
 ## Use
 
 ```bash
-amc status                 # every workflow
-amc show <id>              # pending questions + history (<id>: ID column, any unique suffix)
+amc list                   # every workflow (also: amc status)
+amc get <id>               # pending questions + history (also: amc show)
 amc answer <id> <choice>   # option label or number; for permissions: once | always | reject
 amc send <id> <text...>    # follow-up message to a finished or stuck agent
 ```
+
+`amc send` refuses to send while a structured question or approval is pending.
+Use `amc get <id>` to inspect it, then `amc answer <id> <choice>` to respond.
+This keeps a follow-up from accidentally approving a request or bypassing a question.
+It is also refused for stale workflows (their server is unreachable) and for
+Claude Code workflows, which are observe-only: answer those in their terminal.
 
 MCP (e.g. Claude Code): `claude mcp add agent-mission-control -- amc mcp`.
 Tools: `list_workflows`, `get_workflow`, `answer_workflow`, `resolve_permission`

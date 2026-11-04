@@ -1,14 +1,14 @@
 // Command amc is the workflow state daemon and its CLI.
 //
 //	amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover]
-//	amc status [-addr http://127.0.0.1:4200] [-json]
-//	amc mcp    [-addr http://127.0.0.1:4200]
+//	amc list   [-addr URL] [-json]
+//	amc mcp    [-addr URL]
 //
 // `serve` subscribes to each OpenCode server given with -opencode (start
 // OpenCode with `opencode --port N`, or `opencode serve --port N`), folds the
 // normalized events into per-workflow state, and serves that state over HTTP.
 // The OpenCode servers do not need to be running yet; serve keeps retrying.
-// `status` asks a running daemon for the current state of every workflow.
+// `list` asks a running daemon for the current state of every workflow.
 // `mcp` serves the same state, plus answer/send, as MCP tools on stdio, so an
 // orchestrating agent can drive the workflows (see mcp.go).
 package main
@@ -47,42 +47,42 @@ const (
 	claudeIdleAfter = 24 * time.Hour
 )
 
+// commands maps every CLI name, aliases included, to its handler.
+var commands = map[string]func([]string) error{
+	"serve":     serve,
+	"list":      status,
+	"status":    status, // alias of list
+	"get":       show,
+	"show":      show, // alias of get
+	"answer":    answer,
+	"send":      send,
+	"mcp":       mcpServe,
+	"install":   installCmd,
+	"uninstall": uninstallCmd,
+	"doctor":    doctor,
+	"judge":     judgeCmd,
+	"version":   versionCmd,
+	"--version": versionCmd,
+}
+
 func main() {
 	if len(os.Args) < 2 {
 		usage()
 	}
 	var err error
-	switch os.Args[1] {
-	case "serve":
-		err = serve(os.Args[2:])
-	case "status":
-		err = status(os.Args[2:])
-	case "show":
-		err = show(os.Args[2:])
-	case "answer":
-		err = answer(os.Args[2:])
-	case "send":
-		err = send(os.Args[2:])
-	case "mcp":
-		err = mcpServe(os.Args[2:])
-	case "install":
-		err = installCmd(os.Args[2:])
-	case "uninstall":
-		err = uninstallCmd(os.Args[2:])
-	case "doctor":
-		err = doctor(os.Args[2:])
-	case "judge":
-		err = judgeCmd(os.Args[2:])
-	case "version", "--version":
-		err = versionCmd(os.Args[2:])
+	switch name := os.Args[1]; name {
 	case "hook":
 		_ = hook(os.Args[2:])
 		os.Exit(0) // a hook must never fail the agent
 	case "-h", "--help", "help":
 		usage()
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
-		usage()
+		cmd, ok := commands[name]
+		if !ok {
+			fmt.Fprintf(os.Stderr, "unknown command %q\n\n", name)
+			usage()
+		}
+		err = cmd(os.Args[2:])
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "amc:", err)
@@ -93,10 +93,10 @@ func main() {
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
   amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-codex-socket PATH] [-discover] [-log-text]
-  amc status [-addr http://127.0.0.1:4200] [-json]
-  amc show   [-addr URL] [-json] <id>            pending asks + history
+  amc list   [-addr URL] [-json]                 list workflows (alias: status)
+  amc get    [-addr URL] [-json] <id>            pending asks + history (alias: show)
   amc answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
-  amc send   [-addr URL] <id> <text...>          send free text
+  amc send   [-addr URL] <id> <text...>          send free text when no ask is pending
   amc mcp    [-addr URL]                         MCP server on stdio (for agents)
   amc install   [-dry-run] [-only a,b] [-enable] [-force]
                                     binary, user service, agent plugins, desktop UI
@@ -417,7 +417,7 @@ func listenAndServe(ctx context.Context, mux http.Handler, listen string, logf f
 	}
 	servers := []*http.Server{newServer(mux)}
 	listeners := []net.Listener{ul}
-	logf("API on unix:%s (try: amc status)", sock)
+	logf("API on unix:%s (try: amc list)", sock)
 
 	if listen != "" {
 		tl, err := net.Listen("tcp", listen)
@@ -509,7 +509,7 @@ func writeToken() (string, error) {
 }
 
 func status(args []string) error {
-	fs := flag.NewFlagSet("status", flag.ExitOnError)
+	fs := flag.NewFlagSet("list", flag.ExitOnError)
 	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON instead of a table")
 	_ = fs.Parse(args)

@@ -27,7 +27,7 @@ type SendRequest struct {
 }
 
 // Handler exposes the store over HTTP. {id} may be a full workflow ID or a
-// unique suffix of the source ID, as printed by `amc status`.
+// unique suffix of the source ID, as printed by `amc list`.
 //
 //	GET  /workflows              all workflows, most recently updated first
 //	GET  /workflows/{id}         one workflow: pending asks and history

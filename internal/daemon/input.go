@@ -120,7 +120,7 @@ func (s *Store) SendText(ctx context.Context, ref, text string) error {
 		return fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
 	if len(w.Pending) > 0 {
-		return fmt.Errorf("%w: workflow is waiting on %d ask(s); answer them instead", ErrInvalidInput, len(w.Pending))
+		return fmt.Errorf("%w: workflow is waiting on %d question or approval request(s); answer them instead", ErrInvalidInput, len(w.Pending))
 	}
 	if err := w.input.SendText(ctx, w.SourceID, text); err != nil {
 		return fmt.Errorf("delivering text to %s: %w", w.Adapter, err)
