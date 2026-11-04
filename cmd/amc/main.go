@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
 	"github.com/rgolangh/agent-mission-control/internal/claudecode"
+	"github.com/rgolangh/agent-mission-control/internal/codex"
 	"github.com/rgolangh/agent-mission-control/internal/daemon"
 	"github.com/rgolangh/agent-mission-control/internal/discovery"
 	"github.com/rgolangh/agent-mission-control/internal/opencode"
@@ -90,7 +92,7 @@ func main() {
 
 func usage() {
 	fmt.Fprint(os.Stderr, `usage:
-  amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-discover] [-log-text]
+  amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-codex-socket PATH] [-discover] [-log-text]
   amc status [-addr http://127.0.0.1:4200] [-json]
   amc show   [-addr URL] [-json] <id>            pending asks + history
   amc answer [-addr URL] [-ask ID] <id> <choice> answer a pending ask
@@ -122,11 +124,28 @@ func serve(args []string) error {
 	password := fs.String("opencode-password", os.Getenv("OPENCODE_SERVER_PASSWORD"), "basic auth password for non-discovered OpenCode servers")
 	var servers stringList
 	fs.Var(&servers, "opencode", "OpenCode server base URL (repeatable; default http://localhost:4096)")
-	discover := fs.Bool("discover", false, "also find and attach to running `opencode --port N` servers automatically (Linux)")
+	discover := fs.Bool("discover", false, "automatically discover local OpenCode servers and the default Codex app-server socket (Linux)")
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
 	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
+	codexSocket := fs.String("codex-socket", "", "watch a shared Codex app-server Unix socket (or 'default')")
+	cacheLifetime := fs.Duration("cache-lifetime", 30*time.Minute, "assumed cache lifetime for warning estimates")
+	cacheLead := fs.Duration("cache-warning-lead", 5*time.Minute, "warn this long before the assumed cache lifetime (0 disables)")
 	_ = fs.Parse(args)
+	if *discover && *discoverEvery <= 0 {
+		return fmt.Errorf("discover interval must be positive")
+	}
+	warningAfter, err := cacheWarningAfter(*cacheLifetime, *cacheLead)
+	if err != nil {
+		return err
+	}
+	defaultCodexSocket, err := codexDefaultSocket()
+	if err != nil && (*codexSocket == "default" || *discover) {
+		return err
+	}
+	if *codexSocket == "default" {
+		*codexSocket = defaultCodexSocket
+	}
 	if len(servers) == 0 && !*discover {
 		servers = stringList{"http://localhost:4096"}
 	}
@@ -135,8 +154,51 @@ func serve(args []string) error {
 	defer stop()
 
 	store := daemon.NewStore()
+	store.SetCachePolicy(*cacheLifetime, warningAfter)
 	logf := func(format string, a ...any) {
 		fmt.Fprintf(os.Stderr, "%s [mc] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, a...))
+	}
+	if *codexSocket != "" {
+		client := codex.New(*codexSocket, store, logf)
+		go client.Run(ctx)
+		logf("watching Codex at %s", *codexSocket)
+	} else if *discover {
+		go func() {
+			tick := time.NewTicker(*discoverEvery)
+			defer tick.Stop()
+			for {
+				if info, err := os.Stat(defaultCodexSocket); err == nil && info.Mode()&os.ModeSocket != 0 {
+					logf("discovered Codex app-server at %s", defaultCodexSocket)
+					codex.New(defaultCodexSocket, store, logf).Run(ctx)
+					return
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
+		}()
+	}
+	if warningAfter > 0 {
+		go func() {
+			tick := time.NewTicker(3 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-tick.C:
+					for _, w := range store.CacheWarnings(now) {
+						if w.Overdue {
+							logf("%s cache may already be cold (estimate; actual expiry unknown)", w.WorkflowID)
+						} else {
+							logf("%s cache may expire soon; send a follow-up if needed (estimate; actual expiry unknown)", w.WorkflowID)
+						}
+					}
+				}
+			}
+		}()
 	}
 
 	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
@@ -285,6 +347,29 @@ func serve(args []string) error {
 	}()
 
 	return listenAndServe(ctx, mux, *listen, logf)
+}
+
+func cacheWarningAfter(lifetime, lead time.Duration) (time.Duration, error) {
+	if lifetime <= 0 || lead < 0 || lead >= lifetime {
+		return 0, fmt.Errorf("cache warning lead must be non-negative and shorter than its positive assumed lifetime")
+	}
+	if lead == 0 {
+		return 0, nil
+	}
+	return lifetime - lead, nil
+}
+
+func codexDefaultSocket() (string, error) {
+	home := os.Getenv("CODEX_HOME")
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("finding Codex home: %w", err)
+		}
+		home = filepath.Join(home, ".codex")
+	}
+	return filepath.Join(home, "app-server-control", "app-server-control.sock"), nil
 }
 
 // newOpenCodeClient only gives a password to a directly watched URL

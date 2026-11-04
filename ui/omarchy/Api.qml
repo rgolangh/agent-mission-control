@@ -48,8 +48,10 @@ QtObject {
 
   // A workflow just started needing you (see _noticeTransitions).
   signal needsYou(var workflow)
+  signal cacheWarning(var workflow)
 
   property var _signatures: ({})
+  property var _cacheNotices: ({})
   property bool _primed: false
   property bool _inFlight: false
 
@@ -172,6 +174,15 @@ QtObject {
       reachable = true
       error = ""
       var list = (data.workflows || []).slice()
+      for (var i = 0; i < list.length; i++) {
+        var w = list[i], u = w.token_usage
+        if (!w.stale && u && u.cached_input > 0 && u.warning_after_seconds > 0 &&
+            Date.now() >= Date.parse(u.observed_at) + u.warning_after_seconds * 1000 &&
+            api._cacheNotices[w.id] !== u.observed_at) {
+          api._cacheNotices[w.id] = u.observed_at
+          api.cacheWarning(w)
+        }
+      }
       list.sort(function(a, b) {
         var ra = api._rank[a.status], rb = api._rank[b.status]
         if (ra === undefined) ra = 5

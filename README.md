@@ -17,6 +17,41 @@ you (or an orchestrating agent, over MCP) answer it.
 |---|---|---|
 | **OpenCode** | Daemon reads OpenCode's own HTTP/SSE API. A tiny plugin gives a plain `opencode` an authenticated local port so every session is discovered automatically | See state, answer questions, approve or reject permissions, send follow-ups |
 | **Claude Code** | A hooks-only Claude Code plugin pushes session events to the daemon | See state, questions and permission prompts (answer in the terminal; Claude Code has no input API) |
+| **Codex** | Daemon connects to a shared Codex app-server Unix socket | See state, answer questions, approve or reject command and supported file requests, send follow-ups |
+
+With `amc install --enable`, the AMC service discovers Codex's default shared
+app-server socket automatically when it appears. Start Codex normally on a
+version configured to use its shared daemon. `amc status` and the desktop UI
+then work without a separate AMC terminal. Codex versions or sessions using a
+private app-server are not discovered through this socket.
+
+To connect a Codex terminal through an explicitly selected shared app-server:
+
+```bash
+codex app-server --listen unix:///tmp/codex-amc.sock
+codex --remote unix:///tmp/codex-amc.sock
+amc serve -codex-socket /tmp/codex-amc.sock
+```
+
+The adapter watches sessions loaded on that server. Existing sessions in a
+different Codex process are not automatically attached. Codex subagents are
+excluded because Codex does not accept direct messages to them. Structured Codex
+questions use an experimental app-server interface. Only the listed approval
+choices are offered; other approval request types must be answered in Codex.
+File approvals are available only when the complete proposed diff was observed
+and is at most 32 KiB; otherwise, review and answer in Codex.
+For a Codex app-server using its default control socket, pass
+`-codex-socket default` instead of a path. This also honors `CODEX_HOME`.
+
+For adapters that report token usage (currently Codex), `amc show` displays the
+most recently observed counts, including cached input tokens. The daemon
+estimates an expiry 30 minutes after the latest
+usage update and warns five minutes before it, if that request used cached
+tokens. Desktop clients notify once per observation. Configure the assumptions with `-cache-lifetime` and
+`-cache-warning-lead`, or disable warnings with
+`-cache-warning-lead=0`. The backend does not expose cache expiry, so
+the warning cannot guarantee the cache is still warm or that the next request
+will hit it. A follow-up itself uses tokens; send one only if it is useful.
 
 Ways to look at it:
 - **CLI:** `status`, `show`, `answer`, `send`.
@@ -37,8 +72,8 @@ with no activity at all for 15 minutes is flagged as hung.
 ## Requirements
 
 - Linux (discovery and liveness read `/proc`)
-- Go 1.27+ to build (standard library only, no third-party modules)
-- OpenCode and/or Claude Code
+- Go 1.27+ to build
+- OpenCode, Claude Code, and/or Codex
 
 ## Install
 

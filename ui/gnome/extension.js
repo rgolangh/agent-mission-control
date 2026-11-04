@@ -31,6 +31,7 @@ class Indicator extends PanelMenu.Button {
         this._reachable = false;
         this._loaded = false;
         this._signatures = null;
+        this._cacheNotices = {};
         this._inFlight = false;
         this._dotTimer = 0;
         this._runningDots = [];
@@ -78,6 +79,17 @@ class Indicator extends PanelMenu.Button {
                 const {next, fresh} = model.newlyNeedingYou(this._workflows, this._signatures);
                 this._signatures = next;
                 fresh.forEach(w => this._notify(w));
+                for (const w of this._workflows) {
+                    const u = w.token_usage;
+                    if (!w.stale && u?.cached_input > 0 && u.warning_after_seconds > 0 &&
+                        Date.now() >= Date.parse(u.observed_at) + u.warning_after_seconds * 1000 &&
+                        this._cacheNotices[w.id] !== u.observed_at) {
+                        this._cacheNotices[w.id] = u.observed_at;
+                        const overdue = u.assumed_lifetime_seconds > 0 && Date.now() >= Date.parse(u.observed_at) + u.assumed_lifetime_seconds * 1000;
+                        const message = overdue ? 'Cache may already be cold.' : 'Cache may expire soon; send a follow-up if needed.';
+                        Main.notify('Agent cache estimate', `${model.clean(w.title || w.source_id)}: ${message} This is an estimate; actual expiry is unknown.`);
+                    }
+                }
             }
             this._updatePanel();
             // Don't rebuild under the pointer while the menu is open: an

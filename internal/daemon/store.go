@@ -46,6 +46,7 @@ type Workflow struct {
 	Title        string               `json:"title,omitempty"`
 	Location     string               `json:"location,omitempty"`
 	Capabilities adapter.Capabilities `json:"capabilities"`
+	TokenUsage   *adapter.TokenUsage  `json:"token_usage,omitempty"`
 	Pending      []adapter.Ask        `json:"pending,omitempty"` // asks the source is blocked on, oldest first
 	Origin       string               `json:"origin,omitempty"`  // which server/instance reports this workflow
 	Stale        bool                 `json:"stale,omitempty"`   // the origin is unreachable: state may be out of date and input can't be delivered
@@ -56,16 +57,19 @@ type Workflow struct {
 	PIDs         []int                `json:"pids,omitempty"` // the agent process and its ancestors, nearest first: a UI matches these to window PIDs to focus the terminal // last frame of any kind from the source, including streaming output
 	History      []Transition         `json:"history"`
 
-	input adapter.Responder // how to push input back; nil until an adapter binds one
-	hung  bool              // stuck was set by FlagHung, so new activity undoes it
+	input       adapter.Responder // how to push input back; nil until an adapter binds one
+	hung        bool              // stuck was set by FlagHung, so new activity undoes it
+	cacheWarned bool
 }
 
 // Store is the in-memory workflow table. Safe for concurrent use.
 type Store struct {
-	mu      sync.RWMutex
-	m       map[string]*Workflow
-	syncing map[string]map[string]bool // origin -> workflow IDs seen since BeginSync
-	parents map[string]string          // child source key -> parent source key (subagents)
+	mu                sync.RWMutex
+	m                 map[string]*Workflow
+	syncing           map[string]map[string]bool // origin -> workflow IDs seen since BeginSync
+	parents           map[string]string          // child source key -> parent source key (subagents)
+	cacheWarningAfter time.Duration
+	cacheLifetime     time.Duration
 }
 
 func NewStore() *Store {
@@ -167,6 +171,13 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 	}
 	if ev.Location != "" {
 		w.Location = ev.Location
+	}
+	if ev.TokenUsage != nil {
+		usage := *ev.TokenUsage
+		usage.WarningAfterSeconds = int64(s.cacheWarningAfter / time.Second)
+		usage.AssumedLifetimeSeconds = int64(s.cacheLifetime / time.Second)
+		w.TokenUsage = &usage
+		w.cacheWarned = false
 	}
 	if ev.PID > 0 && (len(w.PIDs) == 0 || w.PIDs[0] != ev.PID) {
 		w.PIDs = procs.Ancestors(ev.PID)
