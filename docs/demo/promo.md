@@ -77,7 +77,7 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 >
 > **The problem:** a few coding agents running in different terminals, and the one that stopped to ask you something sits there unnoticed.
 >
-> **What it does:** a small daemon (`amc`) follows every OpenCode and Claude Code session on your machine and works out whether each one is running, waiting on you, stuck, or done. An omarchy-shell bar widget shows the count of agents that need you, pulses and notifies when one asks something, and opens a panel where you can answer questions and approve permissions without finding the right tab. The same state is available from the CLI (`amc status`, `amc answer`) and over MCP, so an orchestrating agent can answer for you.
+> **What it does:** a small daemon (`amc`) follows every OpenCode and Claude Code session on your machine and works out whether each one is running, waiting on you, stuck, or done. An omarchy-shell bar widget shows the count of agents that need you, pulses and notifies when one asks something, and opens a panel where you can answer questions and approve permissions without finding the right tab. The same state is available from the CLI (`amc list`, `amc answer`) and over MCP, so an orchestrating agent can answer for you.
 >
 > **How it decides "done" vs "stuck" vs "waiting":** ordered rules over how the turn ended (errors, finish reason, a closing question, "I couldn't…" blockers, open todos). No LLM, and every verdict quotes its evidence.
 >

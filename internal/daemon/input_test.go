@@ -264,7 +264,19 @@ func TestSendText(t *testing.T) {
 	// Refused while blocked on an ask: answer it, don't talk over it.
 	s.Apply(askEvent("ses_abcd1234", question("q1", false, true, "x"), time.Now()))
 	// The same error reaches MCP and HTTP clients, so it must not name CLI commands.
-	if err := s.SendText(ctx, "abcd1234", "hello"); !errors.Is(err, ErrInvalidInput) || strings.Contains(err.Error(), "amc ") {
+	var pe *PendingError
+	if err := s.SendText(ctx, "abcd1234", "hello"); !errors.Is(err, ErrInvalidInput) || !errors.As(err, &pe) || pe.Pending[0].ID != "q1" || strings.Contains(err.Error(), "amc ") {
 		t.Errorf("send while blocked: %v", err)
+	}
+}
+
+// A source that cannot receive input is refused for that, even with an ask
+// pending: answering would not help, so it must not look like a pending refusal.
+func TestSendTextCannotReceiveWinsOverPending(t *testing.T) {
+	s := NewStore()
+	s.Apply(askEvent("ses_abcd1234", question("q1", false, true, "x"), time.Now()))
+	var pe *PendingError
+	if err := s.SendText(context.Background(), "abcd1234", "hello"); !errors.Is(err, ErrCannotReceive) || errors.As(err, &pe) {
+		t.Errorf("observe-only send: %v", err)
 	}
 }

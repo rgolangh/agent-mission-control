@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -20,12 +21,12 @@ func parseFlags(fs *flag.FlagSet, args []string) []string {
 }
 
 func show(args []string) error {
-	fs := flag.NewFlagSet("get", flag.ExitOnError)
+	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError) // get, or its alias show
 	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON")
 	pos := parseFlags(fs, args)
 	if len(pos) != 1 {
-		return fmt.Errorf("usage: amc get [-addr URL] [-json] <id>")
+		return fmt.Errorf("usage: amc %s [-addr URL] [-json] <id>", fs.Name())
 	}
 	wf, err := daemon.FetchWorkflow(context.Background(), *addr, pos[0])
 	if err != nil {
@@ -130,13 +131,22 @@ func send(args []string) error {
 	if len(pos) < 2 {
 		return fmt.Errorf("usage: amc send [-addr URL] <id> <text...>")
 	}
-	ctx := context.Background()
-	if err := daemon.PostSend(ctx, *addr, pos[0], strings.Join(pos[1:], " ")); err != nil {
-		// The daemon's error is shared with MCP and HTTP clients; the CLI
-		// commands to unblock the workflow are only ours to suggest.
-		if wf, ferr := daemon.FetchWorkflow(ctx, *addr, pos[0]); ferr == nil && len(wf.Pending) > 0 {
-			return fmt.Errorf("%w\n  inspect: amc get %s\n  respond: amc answer %s <choice>", err, pos[0], pos[0])
+	ref := pos[0]
+	err := daemon.PostSend(context.Background(), *addr, ref, strings.Join(pos[1:], " "))
+	// The daemon's error is shared with MCP and HTTP clients; the CLI
+	// commands to unblock the workflow are only ours to suggest.
+	if pe := (*daemon.PendingError)(nil); errors.As(err, &pe) {
+		hint := fmt.Sprintf("\n  inspect: amc get %s", ref)
+		for _, a := range pe.Pending {
+			ask := ""
+			if len(pe.Pending) > 1 {
+				ask = "-ask " + a.ID + " "
+			}
+			hint += fmt.Sprintf("\n  respond: amc answer %s%s <choice>", ask, ref)
 		}
+		return fmt.Errorf("%w%s", err, hint)
+	}
+	if err != nil {
 		return err
 	}
 	fmt.Println("sent")

@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,5 +83,21 @@ func TestHTTPGuards(t *testing.T) {
 	}
 	if rec := do2(t, h, "POST", "/workflows/abcd1234/send", "localhost", "application/json; charset=utf-8", `{"text":"hi"}`); rec.Code == http.StatusUnsupportedMediaType {
 		t.Errorf("JSON with charset was rejected")
+	}
+}
+
+// Call rebuilds a *PendingError from the response body, so a client knows what
+// to answer without fetching the workflow again.
+func TestHTTPSendRefusalCarriesPendingAsks(t *testing.T) {
+	s, _ := bound(t, question("q1", false, false, "Tabs", "Spaces"))
+	srv := httptest.NewServer(Handler(s))
+	defer srv.Close()
+	err := PostSend(context.Background(), srv.URL, "abcd1234", "go on")
+	var pe *PendingError
+	if !errors.As(err, &pe) || len(pe.Pending) != 1 || pe.Pending[0] != (PendingAsk{ID: "q1", Kind: adapter.AskKindQuestion}) || !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("send while blocked: %v", err)
+	}
+	if err := PostSend(context.Background(), srv.URL, "zzzz9999", "go on"); err == nil || errors.As(err, &pe) {
+		t.Errorf("other errors stay plain: %v", err)
 	}
 }

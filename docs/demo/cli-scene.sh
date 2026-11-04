@@ -26,15 +26,15 @@ note() {
 }
 
 # Wait for the opening of the story (two agents waiting on you) before rolling.
-until [ "$(amc status 2>/dev/null | grep -c "^needs_input")" -ge 2 ]; do sleep 0.2; done
+until [ "$(amc list 2>/dev/null | grep -c "^needs_input")" -ge 2 ]; do sleep 0.2; done
 clear
 sleep 0.5
 
 note "five agent sessions, two tools: who needs me?"
-PAUSE=4.5 run amc status
+PAUSE=4.5 run amc list
 clear
 note "an agent asked a question; see it without finding its tab"
-PAUSE=3.5 run amc show 9kAuthMw
+PAUSE=3.5 run amc get 9kAuthMw
 run amc answer 9kAuthMw Redis
 run amc answer DepsBmp once
 note "the stuck one only needed Docker; nudge it"
@@ -42,4 +42,4 @@ run amc send SyncTst \"Docker is running now, try again\"
 note "a moment later…"
 sleep 3
 clear
-PAUSE=5 run amc status
+PAUSE=5 run amc list

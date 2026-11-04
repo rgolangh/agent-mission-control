@@ -139,7 +139,17 @@ func writeErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrInvalidInput):
 		code = http.StatusBadRequest
 	}
-	writeJSON(w, code, map[string]string{"error": err.Error()})
+	body := errorBody{Error: err.Error()}
+	if pe := (*PendingError)(nil); errors.As(err, &pe) {
+		body.Pending = pe.Pending
+	}
+	writeJSON(w, code, body)
+}
+
+// errorBody is the JSON shape of every non-2xx response.
+type errorBody struct {
+	Error   string       `json:"error"`
+	Pending []PendingAsk `json:"pending,omitempty"` // set when free text was refused for pending asks
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -195,7 +205,8 @@ func Dial(addr string) (*http.Client, string, string) {
 
 // Call performs a request against an agent-mission-control API at addr (see Dial)
 // and decodes a 2xx JSON body into out (if non-nil). Non-2xx responses become
-// errors carrying the server's message.
+// errors carrying the server's message (a *PendingError when the body names
+// pending asks).
 func Call(ctx context.Context, method, addr, path string, body, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -226,10 +237,11 @@ func Call(ctx context.Context, method, addr, path string, body, out any) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		var e struct {
-			Error string `json:"error"`
-		}
+		var e errorBody
 		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if len(e.Pending) > 0 {
+			return &PendingError{Pending: e.Pending}
+		}
 		if e.Error == "" {
 			e.Error = resp.Status
 		}

@@ -106,6 +106,30 @@ func (s *Store) Answer(ctx context.Context, ref string, req AnswerRequest) (Answ
 	return AnswerResult{WorkflowID: w.ID, AskID: ask.ID, Answers: answers}, nil
 }
 
+// PendingAsk names an ask that blocks free text.
+type PendingAsk struct {
+	ID   string          `json:"id"`
+	Kind adapter.AskKind `json:"kind"`
+}
+
+// PendingError refuses free text while the source waits on asks. It is an
+// ErrInvalidInput; the HTTP API also returns Pending in the error body, and
+// Call turns that back into a *PendingError, so clients can say what to answer
+// without fetching the workflow again.
+type PendingError struct {
+	Pending []PendingAsk `json:"pending"`
+}
+
+func (e *PendingError) Error() string {
+	asks := make([]string, len(e.Pending))
+	for i, a := range e.Pending {
+		asks[i] = string(a.Kind) + " " + a.ID
+	}
+	return fmt.Sprintf("%v: workflow is waiting on %s; answer them instead", ErrInvalidInput, strings.Join(asks, ", "))
+}
+
+func (e *PendingError) Unwrap() error { return ErrInvalidInput }
+
 // SendText sends free text into a workflow's source. It is refused while the
 // source is waiting on an ask: that must be answered, not talked over.
 func (s *Store) SendText(ctx context.Context, ref, text string) error {
@@ -120,7 +144,11 @@ func (s *Store) SendText(ctx context.Context, ref, text string) error {
 		return fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
 	if len(w.Pending) > 0 {
-		return fmt.Errorf("%w: workflow is waiting on %d question or approval request(s); answer them instead", ErrInvalidInput, len(w.Pending))
+		e := &PendingError{}
+		for _, a := range w.Pending {
+			e.Pending = append(e.Pending, PendingAsk{ID: a.ID, Kind: a.Kind})
+		}
+		return e
 	}
 	if err := w.input.SendText(ctx, w.SourceID, text); err != nil {
 		return fmt.Errorf("delivering text to %s: %w", w.Adapter, err)
