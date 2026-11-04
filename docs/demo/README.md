@@ -59,6 +59,6 @@ To poke at the story by hand:
 
 ```bash
 eval "$(docs/demo/demo-env.sh start)"
-amc status
+amc list
 docs/demo/demo-env.sh stop
 ```

@@ -63,35 +63,35 @@ var commands = map[string]func([]string) error{
 	"judge":     judgeCmd,
 	"version":   versionCmd,
 	"--version": versionCmd,
+	"hook":      func(args []string) error { _ = hook(args); os.Exit(0); return nil }, // a hook must never fail the agent
+	"help":      help,
+	"-h":        help,
+	"--help":    help,
 }
+
+func help([]string) error { usage(); return nil }
 
 func main() {
 	if len(os.Args) < 2 {
 		usage()
 	}
-	var err error
-	switch name := os.Args[1]; name {
-	case "hook":
-		_ = hook(os.Args[2:])
-		os.Exit(0) // a hook must never fail the agent
-	case "-h", "--help", "help":
+	cmd, ok := commands[os.Args[1]]
+	if !ok {
+		fmt.Fprintf(os.Stderr, "unknown command %q\n\n", os.Args[1])
 		usage()
-	default:
-		cmd, ok := commands[name]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "unknown command %q\n\n", name)
-			usage()
-		}
-		err = cmd(os.Args[2:])
 	}
-	if err != nil {
+	if err := cmd(os.Args[2:]); err != nil {
 		fmt.Fprintln(os.Stderr, "amc:", err)
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `usage:
+	fmt.Fprint(os.Stderr, usageText)
+	os.Exit(2)
+}
+
+const usageText = `usage:
   amc serve  [-listen 127.0.0.1:4200] [-opencode URL]... [-codex-socket PATH] [-discover] [-log-text]
   amc list   [-addr URL] [-json]                 list workflows (alias: status)
   amc get    [-addr URL] [-json] <id>            pending asks + history (alias: show)
@@ -105,11 +105,9 @@ func usage() {
   amc judge [-all] [-only RULES] <transcript.jsonl|file|->
                                     run the done/stuck rules (replay a transcript)
   amc version
-<id> is the ID column from status (a unique suffix is enough). <choice> is an
+<id> is the ID column from list (a unique suffix is enough). <choice> is an
 option's number or label; for a permission: once | always | reject.
-`)
-	os.Exit(2)
-}
+`
 
 // stringList is a repeatable string flag.
 type stringList []string
@@ -509,7 +507,7 @@ func writeToken() (string, error) {
 }
 
 func status(args []string) error {
-	fs := flag.NewFlagSet("list", flag.ExitOnError)
+	fs := flag.NewFlagSet(os.Args[1], flag.ExitOnError) // list, or its alias status
 	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON instead of a table")
 	_ = fs.Parse(args)

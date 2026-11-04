@@ -67,8 +67,12 @@ func TestMCPToolsAgainstDaemon(t *testing.T) {
 		t.Errorf("an unmatched status filter is just an empty list: %v", err)
 	}
 
-	if _, err := call(t, tools, "send_to_workflow", `{"id":"aiting1","text":"go on"}`); err == nil {
-		t.Error("send must be refused while an ask is pending")
+	// The refusal names the ask, for any client, and only the CLI adds its own commands.
+	if _, err := call(t, tools, "send_to_workflow", `{"id":"aiting1","text":"go on"}`); err == nil || !strings.Contains(err.Error(), "question que_1") || strings.Contains(err.Error(), "amc ") {
+		t.Errorf("send must be refused while an ask is pending, naming it: %v", err)
+	}
+	if err := send([]string{"-addr", srv.URL, "aiting1", "go on"}); err == nil || !strings.Contains(err.Error(), "respond: amc answer aiting1 <choice>") {
+		t.Errorf("amc send hint: %v", err)
 	}
 	if _, err := call(t, tools, "answer_workflow", `{"id":"aiting1","choice":"Neither"}`); err == nil {
 		t.Error("an answer outside the options must be rejected")
