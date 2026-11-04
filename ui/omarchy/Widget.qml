@@ -78,12 +78,12 @@ Item {
     }
     onCacheWarning: function(workflow) {
       if (!root.setting("notify", true)) return
-      var title = workflow.title || workflow.source_id
       var u = workflow.token_usage
       var overdue = u.assumed_lifetime_seconds > 0 && Date.now() >= Date.parse(u.observed_at) + u.assumed_lifetime_seconds * 1000
       var message = overdue ? "Cache may already be cold." : "Cache may expire soon; send a follow-up if needed."
       Quickshell.execDetached(["notify-send", "-a", "Agent Mission Control", "-i", "dialog-information",
-        "Agent cache estimate", root.escapeMarkup(String(title) + ": " + message + " This is an estimate; actual expiry is unknown.")])
+        // Fixed strings, like onNeedsYou: no session title in argv.
+        "Agent cache estimate", message + " This is an estimate; actual expiry is unknown."])
     }
   }
 
