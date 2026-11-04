@@ -37,7 +37,6 @@ Item {
   readonly property alias panelCard: card
 
   function alpha(c, a) { return Qt.rgba(c.r, c.g, c.b, a) }
-  function escapeMarkup(s) { return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") }
   function open() { opened = true }
   function close() { opened = false }
   function toggle() { opened = !opened }
@@ -69,15 +68,13 @@ Item {
     interval: root.opened ? 1000 : root.setting("pollIntervalMs", 2000)
     onNeedsYou: function(workflow) {
       if (!root.setting("notify", true)) return
-      var title = workflow.title || workflow.source_id
-      var ask = workflow.pending && workflow.pending.length ? workflow.pending[0] : null
-      var body = ask && ask.questions && ask.questions.length ? ask.questions[0].question : workflow.message
       var heading = { needs_input: "Agent needs you", stuck: "Agent is stuck", failed: "Agent failed" }[workflow.status]
       var icon = workflow.status === "needs_input" ? "dialog-question" : "dialog-warning"
-      // argv, not a shell string, and markup escaped: titles and questions
-      // come from agents, and notification bodies may be rendered as markup.
+      // Fixed strings only: argv is readable by every local user through
+      // /proc/<pid>/cmdline, so session titles and questions never go in it.
+      // They stay behind the token-protected API; the panel shows them.
       Quickshell.execDetached(["notify-send", "-a", "Agent Mission Control", "-i", icon,
-        root.escapeMarkup(heading + ": " + title), root.escapeMarkup(String(body || ""))])
+        heading, "Open Agent Mission Control in the bar to see which one."])
     }
   }
 

@@ -18,7 +18,9 @@ waiting on an answer, with an orbiting spinner while agents are running), and
 a panel listing every workflow, most urgent first,
 where you can answer questions and approve permissions with one click, or send
 a finished or stuck agent a follow-up. Running cards show a three-dot Larson
-scanner. A desktop notification fires when an agent starts needing you.
+scanner. A desktop notification fires when an agent starts needing you. It names
+the status only, not the session or its question: notification text is passed
+to `notify-send` as arguments, which other local users can read.
 
 It is a client of the agent-mission-control daemon's HTTP API, so the daemon must be
 running (`amc serve -discover`). The daemon's TCP port requires a
@@ -93,8 +95,10 @@ script (the README demo uses it).
   private `qs.*` modules are not, so shell updates can't break the widget.
 - **The `bar` it gets is `PluginBarApi`, not the real bar:** colors, font,
   position, `run`, tooltips and popout coordination, but no `shellQuote`.
-  Notifications use `Quickshell.execDetached` with an argv list, because
-  titles and questions come from agents and must never reach a shell.
+  Notifications use `Quickshell.execDetached` with an argv list of fixed
+  strings. Agent text never goes there: not to a shell, because titles and
+  questions come from agents, and not to argv, because any local user can
+  read a process's command line.
 
 ## Testing without touching the running shell
 

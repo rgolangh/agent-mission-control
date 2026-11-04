@@ -221,6 +221,19 @@ markup, so the same applies there, depending on the notification daemon
 > notification summary and body are markup-escaped (argv, never a shell).
 > *Verified live:* the same `<img>` title now renders literally and the
 > listener received 0 requests (2 before).
+> Superseded for notifications by M5: they no longer carry agent text.
+
+**M5. Notifications put session titles and questions in `notify-send`'s argv, readable by other local users.** *Verified.*
+Reported in the Omarchy plugin marketplace review. The widget passed the
+workflow title and its first pending question as `notify-send` arguments, and
+notifications are on by default. Without `hidepid` on `/proc` (Arch's default),
+any local account can read `/proc/<pid>/cmdline`, so the text left the
+token-protected API.
+*Fix:* notifications carry fixed strings only (the status heading and a pointer
+to the panel); the details stay in the panel, read over the authenticated API.
+
+> **Fixed.** `notify-send` gets constant arguments; nothing agent-sourced reaches
+> any argv.
 
 ### Low
 
