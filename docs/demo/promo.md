@@ -99,6 +99,5 @@ Title: **Agent Mission Control: see which coding agent is waiting on you, from t
 ## Before posting (TODO-verify)
 
 - [ ] The `curl -LO` URL and `pacman -U` file name point at the release being announced. Once the AUR package exists, switch to `yay -S agent-mission-control-bin`.
-- [ ] Whether the package (or `amc install`) also sets up the OpenCode bridge and Claude Code hooks, or the posts need one more line.
 - [ ] The Discussions GIF link points at `main`: merge `docs/demo/promo.gif` first, or upload the GIF into the post instead.
 - [ ] "20 minutes" in the X post is illustrative.

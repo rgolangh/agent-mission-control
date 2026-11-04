@@ -45,8 +45,9 @@ with no activity at all for 15 minutes is flagged as hung.
 ### From a package (Arch / Omarchy, Fedora)
 
 The package puts `amc` in `/usr/bin`, a systemd user service in
-`/usr/lib/systemd/user` and the GNOME Shell extension in
-`/usr/share/gnome-shell/extensions`. Then, once per user (not as root)
+`/usr/lib/systemd/user`, the GNOME Shell extension in
+`/usr/share/gnome-shell/extensions` and the agent integrations and Omarchy
+widget in `/usr/share/agent-mission-control`. Then, once per user (not as root)
 (maintainers: [packaging/README.md](packaging/README.md)):
 
 ```bash
@@ -67,9 +68,10 @@ amc doctor
 (`sudo pacman -U ./…` / `sudo dnf install ./…`). With the packaged binary,
 `amc install` uses the packaged service and GNOME extension instead of
 per-user copies (and removes per-user copies an earlier install wrote, which
-would shadow them). After a package upgrade, run `amc install` again to
-refresh the per-user integrations, and `systemctl --user restart
-agent-mission-control` (the RPM restarts it for you).
+would shadow them), and links the integrations to the package's files, so
+upgrades update them. After a package upgrade, `systemctl --user restart
+agent-mission-control` (the RPM restarts it for you) and, on Omarchy,
+`omarchy-restart-shell`.
 
 On Omarchy, `amc install` also puts the bar widget in place, at the
 daemon's version ([details](ui/omarchy/README.md#install)).
@@ -97,7 +99,8 @@ then `amc install`.
 - the binary, in `~/.local/bin` (not with a package: that one is in `/usr/bin`);
 - a systemd user service, which it starts (with a package: enables the packaged one);
 - the OpenCode bridge plugin, if OpenCode is installed;
-- the Claude Code hooks plugin, if Claude Code is installed;
+- the Claude Code hooks plugin, if Claude Code is installed
+  (with a package, these two and the Omarchy widget are links to the package's files);
 - the desktop UI it detects: the omarchy-shell widget (unless `omarchy plugin
   add` manages it) or the GNOME Shell extension (unless packaged).
 

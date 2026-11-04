@@ -34,6 +34,7 @@ package() {
   install -Dm644 agent-mission-control.service "$pkgdir/usr/lib/systemd/user/agent-mission-control.service"
   install -d "$pkgdir/usr/share/gnome-shell"
   cp -r --no-preserve=ownership gnome-shell/extensions "$pkgdir/usr/share/gnome-shell/"
+  cp -r --no-preserve=ownership share/agent-mission-control "$pkgdir/usr/share/" # linked by amc install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 -t "$pkgdir/usr/share/doc/$_pkgname/" README.md SECURITY.md
 }

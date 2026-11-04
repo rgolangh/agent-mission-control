@@ -3,7 +3,8 @@
 # publishes, minus the .pkg.tar.zst and .rpm packages built from them):
 #
 #   amc-linux-{amd64,arm64}                  bare binaries (README's curl install)
-#   amc-X.Y.Z-linux-{amd64,arm64}.tar.gz     binary + unit + GNOME extension + docs
+#   amc-X.Y.Z-linux-{amd64,arm64}.tar.gz     binary + unit + GNOME extension +
+#                                            share/ (integrations, install-share.sh) + docs
 #                                            (what agent-mission-control-bin repackages)
 #   agent-mission-control-X.Y.Z.tar.gz       source (git archive of HEAD), for the
 #                                            source PKGBUILD and the RPM spec
@@ -31,6 +32,7 @@ for arch in amd64 arm64; do
 	cp dist/amc-linux-$arch "$d/amc"
 	cp LICENSE README.md SECURITY.md packaging/systemd/agent-mission-control.service "$d/"
 	for f in $gnome; do cp "ui/gnome/$f" "$d/gnome-shell/extensions/$uuid/"; done
+	packaging/install-share.sh "$d/share/agent-mission-control"
 	# Reproducible: fixed order, owner and mtime (the tagged commit's).
 	tar --sort=name --owner=0 --group=0 --numeric-owner \
 		--mtime="@$(git log -1 --format=%ct)" \

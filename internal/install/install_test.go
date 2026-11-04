@@ -341,3 +341,132 @@ func TestPackagedUnitMatchesInstaller(t *testing.T) {
 		t.Errorf("packaging/systemd unit drifted from install.UnitBody:\n%s", body)
 	}
 }
+
+// withShare adds the package's copies of the per-user integrations.
+func withShare(t *testing.T, e Env) {
+	t.Helper()
+	for p, data := range map[string]string{
+		"opencode/agent-mission-control-bridge.js": "bridge pkg",
+		"claude-code/hooks/hooks.json":             "{}",
+		"omarchy/Widget.qml":                       "Item {}",
+	} {
+		p = e.sys(filepath.Join(SystemShare, p))
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(data), 0o644)
+	}
+}
+
+var packagedLinks = map[string]string{
+	".config/opencode/plugins/agent-mission-control-bridge.js": "opencode/agent-mission-control-bridge.js",
+	".claude/skills/agent-mission-control":                     "claude-code",
+	".config/omarchy/plugins/agent-mission-control":            "omarchy",
+}
+
+func checkLinks(t *testing.T, e Env) {
+	t.Helper()
+	for p, share := range packagedLinks {
+		got, err := os.Readlink(filepath.Join(e.Home, p))
+		if want := e.sys(filepath.Join(SystemShare, share)); err != nil || got != want {
+			t.Errorf("%s: link %q (%v), want %q", p, got, err, want)
+		}
+	}
+}
+
+func TestPackagedIntegrationsAreLinkedToThePackage(t *testing.T) {
+	e, ran, out := packagedEnv(t, "opencode", "claude", "omarchy-shell")
+	withShare(t, e)
+	if err := Install(e, "v1", Options{}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	checkLinks(t, e)
+	if !strings.Contains(strings.Join(*ran, "\n"), "omarchy-shell -q shell rescanPlugins") {
+		t.Errorf("omarchy not rescanned: %v", *ran)
+	}
+
+	out.Reset()
+	if err := Install(e, "v2", Options{}); err != nil || !strings.Contains(out.String(), "linked ") || strings.Contains(out.String(), "remove") {
+		t.Errorf("reinstall should find the links in place: %v\n%s", err, out)
+	}
+
+	if err := Uninstall(e, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	for p := range packagedLinks {
+		if _, err := os.Lstat(filepath.Join(e.Home, p)); err == nil {
+			t.Errorf("%s left behind", p)
+		}
+	}
+	if read(t, e.sys(SystemShare+"/omarchy/Widget.qml")) != "Item {}" {
+		t.Error("uninstall must not touch the package's files")
+	}
+	if _, err := os.Stat(e.ManifestPath()); err == nil {
+		t.Error("manifest left behind")
+	}
+}
+
+// Copies from a per-user install (release binary) become links once the
+// package is installed.
+func TestPackagedInstallReplacesPerUserCopiesWithLinks(t *testing.T) {
+	e, _, out := packagedEnv(t, "opencode", "claude", "omarchy-shell")
+	withShare(t, e)
+	user := e
+	user.Exe = filepath.Join(t.TempDir(), "amc")
+	os.WriteFile(user.Exe, []byte("BINARY v1"), 0o755)
+	if err := Install(user, "v1", Options{}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if read(t, filepath.Join(e.Home, ".config/omarchy/plugins/agent-mission-control/Widget.qml")) == "" {
+		t.Fatal("per-user install incomplete")
+	}
+	out.Reset()
+	if err := Install(e, "v2", Options{}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	checkLinks(t, e)
+	if m := e.LoadManifest(); len(m.Links) != 3 {
+		t.Errorf("manifest links: %v", m.Links)
+	}
+}
+
+func TestPackagedLinkRefusesToReplaceFilesItDidNotWrite(t *testing.T) {
+	e, _, out := packagedEnv(t, "omarchy-shell")
+	withShare(t, e)
+	dir := filepath.Join(e.Home, ".config/omarchy/plugins/agent-mission-control")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "Widget.qml"), []byte("mine"), 0o644)
+	only := map[string]bool{"omarchy": true}
+	if err := Install(e, "v1", Options{Only: only}); err == nil {
+		t.Fatalf("must refuse to replace a directory with someone else's files:\n%s", out)
+	}
+	if read(t, filepath.Join(dir, "Widget.qml")) != "mine" {
+		t.Error("foreign file changed")
+	}
+	if err := Install(e, "v1", Options{Only: only, Force: true}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.Readlink(dir); got != e.sys(SystemShare+"/omarchy") {
+		t.Errorf("--force should link it, got %q", got)
+	}
+}
+
+// A development symlink at the integration's path stays.
+func TestPackagedLinkLeavesADevSymlinkAlone(t *testing.T) {
+	e, _, out := packagedEnv(t, "omarchy-shell")
+	withShare(t, e)
+	checkout := t.TempDir()
+	dir := filepath.Join(e.Home, ".config/omarchy/plugins/agent-mission-control")
+	os.MkdirAll(filepath.Dir(dir), 0o755)
+	os.Symlink(checkout, dir)
+	if err := Install(e, "v1", Options{Only: map[string]bool{"omarchy": true}}); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if got, _ := os.Readlink(dir); got != checkout {
+		t.Errorf("dev symlink replaced: %q", got)
+	}
+	if err := Uninstall(e, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.Readlink(dir); got != checkout {
+		t.Errorf("uninstall removed the dev symlink")
+	}
+}

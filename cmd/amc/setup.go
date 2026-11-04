@@ -141,6 +141,23 @@ func doctor([]string) error {
 			note(c.Name + ": " + c.Skip)
 			continue
 		}
+		if c.Link != nil {
+			switch install.LinkStatus(e, m, c) {
+			case install.LinkUpToDate:
+				check(true, c.Name+": linked to the package ("+c.Link.Target+")", "")
+			case install.LinkOther:
+				note(c.Name + ": linked elsewhere (development setup)")
+			case install.LinkBlocked:
+				check(false, c.Name+": a copy at "+c.Link.Path+" shadows the package's", "remove it, then amc install (or amc install --force)")
+			default:
+				if c.Detected {
+					check(false, c.Name+": not installed ("+c.Why+")", "amc install --only "+c.Name)
+				} else {
+					note(c.Name + ": not installed (" + c.Why + ")")
+				}
+			}
+			continue
+		}
 		if len(c.Files) == 0 {
 			if len(c.Supersede) > 0 {
 				note(c.Name + ": " + c.Why)
