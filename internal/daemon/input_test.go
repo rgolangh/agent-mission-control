@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -262,7 +263,8 @@ func TestSendText(t *testing.T) {
 
 	// Refused while blocked on an ask: answer it, don't talk over it.
 	s.Apply(askEvent("ses_abcd1234", question("q1", false, true, "x"), time.Now()))
-	if err := s.SendText(ctx, "abcd1234", "hello"); !errors.Is(err, ErrInvalidInput) {
+	// The same error reaches MCP and HTTP clients, so it must not name CLI commands.
+	if err := s.SendText(ctx, "abcd1234", "hello"); !errors.Is(err, ErrInvalidInput) || strings.Contains(err.Error(), "amc ") {
 		t.Errorf("send while blocked: %v", err)
 	}
 }

@@ -158,6 +158,8 @@ amc send <id> <text...>    # follow-up message to a finished or stuck agent
 `amc send` refuses to send while a structured question or approval is pending.
 Use `amc get <id>` to inspect it, then `amc answer <id> <choice>` to respond.
 This keeps a follow-up from accidentally approving a request or bypassing a question.
+It is also refused for stale workflows (their server is unreachable) and for
+Claude Code workflows, which are observe-only: answer those in their terminal.
 
 MCP (e.g. Claude Code): `claude mcp add agent-mission-control -- amc mcp`.
 Tools: `list_workflows`, `get_workflow`, `answer_workflow`, `resolve_permission`

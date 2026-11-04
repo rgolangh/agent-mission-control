@@ -20,12 +20,12 @@ func parseFlags(fs *flag.FlagSet, args []string) []string {
 }
 
 func show(args []string) error {
-	fs := flag.NewFlagSet("show", flag.ExitOnError)
+	fs := flag.NewFlagSet("get", flag.ExitOnError)
 	addr := fs.String("addr", daemon.DefaultAddr(), "daemon address: unix:<socket> (default) or http://host:port (reads the token file)")
 	asJSON := fs.Bool("json", false, "print raw JSON")
 	pos := parseFlags(fs, args)
 	if len(pos) != 1 {
-		return fmt.Errorf("usage: amc show [-addr URL] [-json] <id>")
+		return fmt.Errorf("usage: amc get [-addr URL] [-json] <id>")
 	}
 	wf, err := daemon.FetchWorkflow(context.Background(), *addr, pos[0])
 	if err != nil {
@@ -119,7 +119,7 @@ func answer(args []string) error {
 		fmt.Printf("confirmed: now %s — %s\n", wf.Status, wf.Message)
 		return nil
 	}
-	fmt.Println("delivered, but no confirmation from the source yet; check `amc show`")
+	fmt.Println("delivered, but no confirmation from the source yet; check `amc get`")
 	return nil
 }
 
@@ -130,7 +130,13 @@ func send(args []string) error {
 	if len(pos) < 2 {
 		return fmt.Errorf("usage: amc send [-addr URL] <id> <text...>")
 	}
-	if err := daemon.PostSend(context.Background(), *addr, pos[0], strings.Join(pos[1:], " ")); err != nil {
+	ctx := context.Background()
+	if err := daemon.PostSend(ctx, *addr, pos[0], strings.Join(pos[1:], " ")); err != nil {
+		// The daemon's error is shared with MCP and HTTP clients; the CLI
+		// commands to unblock the workflow are only ours to suggest.
+		if wf, ferr := daemon.FetchWorkflow(ctx, *addr, pos[0]); ferr == nil && len(wf.Pending) > 0 {
+			return fmt.Errorf("%w\n  inspect: amc get %s\n  respond: amc answer %s <choice>", err, pos[0], pos[0])
+		}
 		return err
 	}
 	fmt.Println("sent")
