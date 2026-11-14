@@ -66,6 +66,8 @@ install -Dpm 0644 packaging/systemd/agent-mission-control.service \
 install -d %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}
 install -pm 0644 ui/gnome/metadata.json ui/gnome/extension.js ui/gnome/client.js \
     ui/gnome/model.js ui/gnome/stylesheet.css \
+    ui/gnome/schemas/org.gnome.shell.extensions.agent-mission-control.gschema.xml \
+    ui/gnome/schemas/gschemas.compiled \
     %{buildroot}%{_datadir}/gnome-shell/extensions/%{uuid}/
 # The per-user integrations, linked into each home by amc install.
 packaging/install-share.sh %{buildroot}%{_datadir}/%{name}

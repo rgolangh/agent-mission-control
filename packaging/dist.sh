@@ -17,7 +17,7 @@ cd "$(dirname "$0")/.."
 tag=${1:?usage: dist.sh vX.Y.Z}
 v=${tag#v}
 uuid=agent-mission-control@rgolangh.github.io
-gnome="metadata.json extension.js client.js model.js stylesheet.css"
+gnome="metadata.json extension.js client.js model.js stylesheet.css schemas/org.gnome.shell.extensions.agent-mission-control.gschema.xml schemas/gschemas.compiled"
 
 rm -rf dist
 mkdir -p dist

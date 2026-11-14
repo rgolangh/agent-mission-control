@@ -21,4 +21,7 @@ release:
 	git tag v$(V:v%=%)
 	git push --atomic origin main v$(V:v%=%)
 
-.PHONY: build debug install release
+.PHONY: build debug install release gnome-schemas
+
+gnome-schemas:
+	glib-compile-schemas --strict ui/gnome/schemas

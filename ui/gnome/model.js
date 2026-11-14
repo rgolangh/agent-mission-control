@@ -5,9 +5,20 @@
 // then what is finished. Newest first within a group.
 const RANK = {needs_input: 0, stuck: 1, failed: 2, running: 3, done: 4};
 
+// Views: subsets of the workflow list, switched with the menu's view buttons
+// or Ctrl+1-4. VIEW_ALL keeps idle and completed workflows visible.
+export const VIEW_ALL = 'all';
+export const VIEW_NEEDS_YOU = 'needs-you';
+export const VIEW_WAITING = 'waiting';
+export const VIEW_RUNNING = 'running';
+
+export function urgencyRank(workflow) {
+    return RANK[workflow.status] ?? 5;
+}
+
 export function sortByUrgency(workflows) {
     return [...workflows].sort((a, b) => {
-        const ra = RANK[a.status] ?? 5, rb = RANK[b.status] ?? 5;
+        const ra = urgencyRank(a), rb = urgencyRank(b);
         if (ra !== rb)
             return ra - rb;
         return a.updated_at < b.updated_at ? 1 : a.updated_at > b.updated_at ? -1 : 0;
@@ -43,6 +54,21 @@ export function summary(workflows) {
 
 export function needsYou(w) {
     return !w.stale && ['needs_input', 'stuck', 'failed'].includes(w.status);
+}
+
+export function filterWorkflows(workflows, view = VIEW_ALL) {
+    if (view === VIEW_NEEDS_YOU)
+        return workflows.filter(needsYou);
+    if (view === VIEW_WAITING)
+        return workflows.filter(w => !w.stale && w.status === 'needs_input');
+    if (view === VIEW_RUNNING)
+        return workflows.filter(w => !w.stale && w.status === 'running');
+    return [...workflows];
+}
+
+export function viewCounts(workflows) {
+    const c = counts(workflows);
+    return {all: workflows.length, needsYou: c.attention, waiting: c.needs_input, running: c.running};
 }
 
 // The daemon emits RFC 3339 with nanoseconds; JS dates take milliseconds.
