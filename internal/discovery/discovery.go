@@ -3,14 +3,16 @@
 //
 // Method: map listening TCP sockets to the processes that own them (via
 // /proc), keep only processes that look like OpenCode, then confirm each
-// candidate really is an OpenCode API server with GET /global/health before
-// reporting it. Two independent checks matter because nothing else should
-// ever receive the OpenCode password: the owning process must be OpenCode,
-// and the port must answer like OpenCode.
+// candidate really is an OpenCode API server before reporting it: a v1
+// server with GET /global/health, a v2 server (the shared background
+// service, which serves its web UI on unknown paths) with GET /api/info.
+// Two independent checks matter because nothing else should ever receive
+// the OpenCode password: the owning process must be OpenCode, and the port
+// must answer like OpenCode.
 //
-// Limits: only servers started with a port (`opencode --port N`,
-// `opencode serve --port N`) can be found — a plain `opencode` does not
-// listen. Linux only (needs /proc).
+// Limits: only listening servers can be found — a v1 `opencode` without
+// --port does not listen (that is what the bridge plugin was for); v2 always
+// does, through its shared service. Linux only (needs /proc).
 package discovery
 
 import (
@@ -34,13 +36,18 @@ import (
 type Endpoint struct {
 	URL     string // base URL, e.g. http://127.0.0.1:4096
 	PID     int    // owning process
-	Version string // from /global/health; empty if AuthRequired
+	Version string // from the health/info probe; empty if AuthRequired
 
-	// AuthRequired means /global/health answered 401, so the server could not
-	// be checked against the {healthy, version} shape. Its identity then rests
-	// on the owning process alone. Credentials are never sent by discovery:
-	// the caller supplies them, and should do so only for endpoints returned
-	// here.
+	// API is the server's major API version: 1 (standalone `opencode serve`,
+	// /global/health and /event) or 2 (the shared background service,
+	// /api/info and /api/event).
+	API int
+
+	// AuthRequired means the identity probe was refused (401), so the server
+	// could not be checked against the {healthy, version} shape. Its identity
+	// then rests on the owning process alone. Credentials are never sent by
+	// discovery: the caller supplies them, and should do so only for
+	// endpoints returned here.
 	AuthRequired bool
 }
 
@@ -180,8 +187,9 @@ func probeHost(a netip.Addr) string {
 	}
 }
 
-// probe checks one candidate with an unauthenticated GET /global/health.
-// It never sends credentials.
+// probe checks one candidate without credentials. It never sends them.
+// The v1 check runs first; a v2 server answers /global/health with its web
+// UI's HTML, which fails the JSON check, and is then identified by /api/info.
 func (s *Scanner) probe(ctx context.Context, c candidate) (Endpoint, bool) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/global/health", nil)
 	if err != nil {
@@ -204,9 +212,49 @@ func (s *Scanner) probe(ctx context.Context, c candidate) (Endpoint, bool) {
 			Version string `json:"version"`
 		}
 		if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&h); err != nil || !h.Healthy || h.Version == "" {
+			// Not v1's health JSON: either something else entirely, or a v2
+			// server whose SPA fallback answered HTML. /api/info tells them
+			// apart without credentials.
+			return s.probeV2(ctx, c)
+		}
+		return Endpoint{URL: c.url, PID: c.pid, Version: h.Version, API: 1}, true
+	}
+	return s.probeV2(ctx, c)
+}
+
+// probeV2 identifies a v2 server. /api/info needs the service password, but
+// its refusal is as identifying as its answer: only an OpenCode v2 server
+// answers 401 with an UnauthorizedError JSON body (a v1 server has no such
+// route and returns 404). The version is read when the server allows it.
+func (s *Scanner) probeV2(ctx context.Context, c candidate) (Endpoint, bool) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.url+"/api/info", nil)
+	if err != nil {
+		return Endpoint{}, false
+	}
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		return Endpoint{}, false
+	}
+	defer resp.Body.Close()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var info struct {
+			Version string `json:"version"`
+			PID     int    `json:"pid"`
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&info); err != nil || info.Version == "" || info.PID <= 0 {
 			return Endpoint{}, false
 		}
-		return Endpoint{URL: c.url, PID: c.pid, Version: h.Version}, true
+		return Endpoint{URL: c.url, PID: c.pid, Version: info.Version, API: 2}, true
+	case http.StatusUnauthorized:
+		var e struct {
+			Tag string `json:"_tag"`
+		}
+		if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&e); err != nil || e.Tag != "UnauthorizedError" {
+			return Endpoint{}, false
+		}
+		return Endpoint{URL: c.url, PID: c.pid, AuthRequired: true, API: 2}, true
 	}
 	return Endpoint{}, false
 }

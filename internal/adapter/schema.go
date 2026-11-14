@@ -109,6 +109,15 @@ type AskQuestion struct {
 	Options  []string `json:"options,omitempty"`
 	Multiple bool     `json:"multiple,omitempty"`  // more than one option may be chosen
 	FreeText bool     `json:"free_text,omitempty"` // an answer outside Options is accepted
+
+	// Key is the machine key of this question inside the ask (OpenCode v2
+	// forms identify fields by key). Empty when the adapter has no use for it.
+	Key string `json:"key,omitempty"`
+	// OptionValues holds the machine value of each entry of Options, in the
+	// same order, when a tool distinguishes values from labels (OpenCode v2
+	// forms). The answer maps a chosen label back to its value; when empty,
+	// the label itself is the value.
+	OptionValues []string `json:"option_values,omitempty"`
 }
 
 // Ask is a pending request a source is blocked on. ID is adapter-scoped and is

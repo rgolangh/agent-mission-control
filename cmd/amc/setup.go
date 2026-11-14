@@ -39,6 +39,10 @@ func installEnv() (install.Env, error) {
 			cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 			return cmd.Run()
 		},
+		Capture: func(name string, args ...string) (string, error) {
+			out, err := exec.Command(name, args...).CombinedOutput()
+			return string(out), err
+		},
 	}, nil
 }
 

@@ -13,15 +13,18 @@ var _ adapter.Responder = (*Client)(nil)
 // Answer delivers answers to a pending ask. A question takes one list of
 // chosen labels per question; a permission takes exactly one of
 // "once" | "always" | "reject".
-func (c *Client) Answer(ctx context.Context, _ string, ask adapter.Ask, answers [][]string) error {
+func (c *Client) Answer(ctx context.Context, sourceID string, ask adapter.Ask, answers [][]string) error {
 	switch ask.Kind {
 	case adapter.AskKindQuestion:
+		if c.apiVersion(ctx) == 2 {
+			return c.ReplyForm(ctx, sourceID, ask, answers)
+		}
 		return c.ReplyQuestion(ctx, ask.ID, answers)
 	case adapter.AskKindPermission:
 		if len(answers) != 1 || len(answers[0]) != 1 {
 			return fmt.Errorf("a permission takes exactly one reply, got %v", answers)
 		}
-		return c.ResolvePermission(ctx, ask.ID, answers[0][0])
+		return c.ResolvePermission(ctx, sourceID, ask.ID, answers[0][0])
 	default:
 		return fmt.Errorf("unsupported ask kind %q", ask.Kind)
 	}

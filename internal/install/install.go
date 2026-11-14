@@ -45,7 +45,10 @@ type Env struct {
 	Assets fs.FS                                   // agentmissioncontrol.Assets
 	Look   func(cmd string) bool                   // is cmd on PATH?
 	Run    func(name string, args ...string) error // run a command (systemctl, ...)
-	Out    io.Writer
+	// Capture runs a command and returns its combined output, for version
+	// detection. Nil disables it.
+	Capture func(name string, args ...string) (string, error)
+	Out     io.Writer
 }
 
 // Options select what to do.
@@ -186,14 +189,25 @@ func Plan(e Env) ([]Component, error) {
 
 	oc := Component{Name: "opencode"}
 	oc.Detected, oc.Why = detect(e, "opencode", filepath.Join(e.Home, ".config", "opencode"))
-	if f, err := assetFiles(e.Assets, "integrations/opencode", filepath.Join(e.Home, ".config", "opencode", "plugins"), "agent-mission-control-bridge.js"); err == nil {
-		oc.Files = f
+	if opencodeV2(e) {
+		// The v2 shared service is discovered and driven over its own HTTP
+		// API; the bridge plugin exists only for v1 and fails to load on v2
+		// (which logs a warning in every session), so none is installed and
+		// an earlier one is superseded.
+		oc.Why += "; v2: the daemon attaches to the shared service, no plugin"
+		oc.Supersede = []string{bridgePath(e)}
+		oc.Notes = []string{"OpenCode v2 detected: the daemon attaches to its shared service directly; no plugin needed."}
+		comps = append(comps, oc)
 	} else {
-		return nil, err
+		if f, err := assetFiles(e.Assets, "integrations/opencode", filepath.Join(e.Home, ".config", "opencode", "plugins"), "agent-mission-control-bridge.js"); err == nil {
+			oc.Files = f
+		} else {
+			return nil, err
+		}
+		linkPackaged(e, &oc, bridgePath(e), "opencode/agent-mission-control-bridge.js")
+		oc.Notes = []string{"New `opencode` sessions are discovered automatically; restart open ones."}
+		comps = append(comps, oc)
 	}
-	linkPackaged(e, &oc, filepath.Join(e.Home, ".config", "opencode", "plugins", "agent-mission-control-bridge.js"), "opencode/agent-mission-control-bridge.js")
-	oc.Notes = []string{"New `opencode` sessions are discovered automatically; restart open ones."}
-	comps = append(comps, oc)
 
 	cc := Component{Name: "claude-code"}
 	cc.Detected, cc.Why = detect(e, "claude", filepath.Join(e.Home, ".claude"))
@@ -270,6 +284,33 @@ func detect(e Env, cmd, dir string) (bool, string) {
 		}
 	}
 	return false, cmd + " not found"
+}
+
+// opencodeV2 reports whether the opencode on PATH speaks the v2 API (the
+// shared background service). `opencode --version` prints e.g.
+// "opencode v2.2.5"; unknown output counts as v1, so a failed probe never
+// skips the v1 bridge.
+func opencodeV2(e Env) bool {
+	if e.Capture == nil {
+		return false
+	}
+	out, err := e.Capture("opencode", "--version")
+	if err != nil {
+		return false
+	}
+	for _, f := range strings.Fields(strings.TrimSpace(strings.ToLower(out))) {
+		if v, ok := strings.CutPrefix(f, "v"); ok {
+			if major, _, ok := strings.Cut(v, "."); ok && major == "2" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// bridgePath is where the v1 bridge plugin is installed.
+func bridgePath(e Env) string {
+	return filepath.Join(e.Home, ".config", "opencode", "plugins", "agent-mission-control-bridge.js")
 }
 
 // assetFiles maps every embedded file under srcDir to dstDir. If names are

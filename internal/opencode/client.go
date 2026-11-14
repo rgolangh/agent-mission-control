@@ -8,25 +8,34 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rgolangh/agent-mission-control/internal/adapter"
 )
 
-// Client talks to a running `opencode serve` instance over plain HTTP/SSE.
-// No JS, no plugin install required — this is exactly what the OpenCode TUI
-// and web client themselves talk to.
+// Client talks to a running OpenCode server over plain HTTP/SSE — v1
+// (`opencode serve`) and v2 (the shared background service) alike. This is
+// exactly what the OpenCode TUI and web client themselves talk to.
 type Client struct {
 	BaseURL  string // e.g. "http://localhost:4096"
 	Username string // defaults to "opencode" server-side if a password is set
-	Password string // OPENCODE_SERVER_PASSWORD, empty if server has no auth
+	Password string // OPENCODE_SERVER_PASSWORD or the v2 service password, empty if server has no auth
 	Token    string // bearer token of an agent-mission-control bridge port (see integrations/opencode)
 	// TokenFunc, if set, supplies Token lazily: it is called until it
 	// returns one (a bridge writes its token file just after opening its port).
 	TokenFunc func() string
 	tokenMu   sync.Mutex
-	HTTP      *http.Client
+	// API is the server's major API version: 1 (opencode v1: /global/health,
+	// /event, /session/...) or 2 (opencode v2: /api/info, /api/event,
+	// /api/session/...). 0 means detect on first use. Discovery sets it when
+	// it already knows.
+	API   int
+	apiMu sync.Mutex
+	HTTP  *http.Client
 }
 
 const (
@@ -60,9 +69,51 @@ func (c *Client) authenticate(req *http.Request) {
 	}
 }
 
-// Health checks GET /global/health before we bother subscribing.
+// apiVersion returns the server's major API version, detecting it once:
+// only a v2 server answers GET /api/info with a version JSON. The probe is
+// authenticated because a v2 service refuses /api/info without credentials
+// (a v1 server has no such route and 404s either way).
+func (c *Client) apiVersion(ctx context.Context) int {
+	c.apiMu.Lock()
+	defer c.apiMu.Unlock()
+	if c.API != 0 {
+		return c.API
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/api/info", nil)
+	if err != nil {
+		c.API = 1
+		return c.API
+	}
+	c.authenticate(req)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		c.API = 1
+		return c.API
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusOK {
+		var info struct {
+			Version string `json:"version"`
+		}
+		if json.NewDecoder(io.LimitReader(resp.Body, 4<<10)).Decode(&info) == nil && info.Version != "" {
+			c.API = 2
+			return c.API
+		}
+	}
+	c.API = 1
+	return c.API
+}
+
+// Health checks the server's identity endpoint before we bother
+// subscribing: /global/health on v1, /api/info on v2.
 func (c *Client) Health(ctx context.Context) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/global/health", nil)
+	path := "/global/health"
+	if c.apiVersion(ctx) == 2 {
+		path = "/api/info"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
 		return err
 	}
@@ -78,19 +129,25 @@ func (c *Client) Health(ctx context.Context) error {
 	return nil
 }
 
-// Subscribe opens GET /event and pushes decoded Envelopes onto the returned
-// channel until ctx is cancelled or the connection drops. It does NOT
-// reconnect on its own — see SubscribeWithReconnect for that, because a
-// known OpenCode regression has shipped where /event accepts the connection
-// but silently stops forwarding events, and callers should decide their own
-// staleness timeout rather than have this hide it.
+// Subscribe opens the server's event stream (GET /event on v1, GET /api/event
+// on v2) and pushes decoded Envelopes onto the returned channel until ctx is
+// cancelled or the connection drops. It does NOT reconnect on its own — see
+// SubscribeWithReconnect for that, because a known OpenCode regression has
+// shipped where the stream accepts the connection but silently stops
+// forwarding events, and callers should decide their own staleness timeout
+// rather than have this hide it.
 func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) {
 	events := make(chan Envelope)
 	errs := make(chan error, 1)
 
 	go func() {
 		defer close(events)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/event", nil)
+		api := c.apiVersion(ctx)
+		stream := "/event"
+		if api == 2 {
+			stream = "/api/event"
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+stream, nil)
 		if err != nil {
 			errs <- err
 			return
@@ -114,6 +171,13 @@ func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) 
 		var dataLines [][]byte
 		dataBytes := 0
 		oversized := false
+		emit := func(env Envelope) {
+			env.API = api
+			select {
+			case events <- env:
+			case <-ctx.Done():
+			}
+		}
 
 		flush := func() {
 			if oversized {
@@ -135,10 +199,7 @@ func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) 
 				// rather than error the whole stream.
 				return
 			}
-			select {
-			case events <- env:
-			case <-ctx.Done():
-			}
+			emit(env)
 		}
 
 		for scanner.Scan() {
@@ -163,8 +224,13 @@ func (c *Client) Subscribe(ctx context.Context) (<-chan Envelope, <-chan error) 
 				}
 				dataLines = append(dataLines, data)
 				dataBytes += n
+			case strings.HasPrefix(line, ":"):
+				// A heartbeat comment (v2 keeps the stream alive with these
+				// instead of events). Surface it as a frame the caller can
+				// use for liveness; Normalize drops it as noise.
+				emit(Envelope{Type: "server.heartbeat"})
 			default:
-				// ignore "event:", "id:", ":" comment/heartbeat lines
+				// ignore "event:", "id:" lines
 			}
 		}
 		flush()
@@ -339,15 +405,18 @@ func (c *Client) getLimited(ctx context.Context, path string, out any, limit int
 }
 
 // Snapshot describes what the server is doing right now as synthetic
-// Envelopes shaped exactly like live /event frames, so Normalize handles them
-// unchanged. /event only tells you what happens after you subscribe; without
-// this, anything pending at (re)connect time — a question the agent is
-// already blocked on — would be invisible. Order matters: busy sessions
-// first, then permission and question asks, because a session blocked on an
-// ask still reports "busy" and the ask must win.
+// Envelopes shaped exactly like live event frames, so Normalize handles them
+// unchanged. The event stream only tells you what happens after you
+// subscribe; without this, anything pending at (re)connect time — a question
+// the agent is already blocked on — would be invisible. Order matters: busy
+// sessions first, then metadata, then permission and question asks, because
+// a session blocked on an ask still reports "busy" and the ask must win.
 // Idle sessions are deliberately not enumerated: only sessions that are busy
 // or waiting on you count as live workflows; history stays out.
 func (c *Client) Snapshot(ctx context.Context) ([]Envelope, error) {
+	if c.apiVersion(ctx) == 2 {
+		return c.snapshotV2(ctx)
+	}
 	ctx, cancel := context.WithTimeout(ctx, maxSnapshotDuration)
 	defer cancel()
 	var out []Envelope
@@ -418,6 +487,107 @@ func (c *Client) Snapshot(ctx context.Context) ([]Envelope, error) {
 	return out, firstErr
 }
 
+// snapshotV2 is the v2 Snapshot: the shared service's equivalents of the v1
+// status/ask endpoints, replayed as the v2 event frames Normalize expects.
+func (c *Client) snapshotV2(ctx context.Context) ([]Envelope, error) {
+	ctx, cancel := context.WithTimeout(ctx, maxSnapshotDuration)
+	defer cancel()
+	var out []Envelope
+	var firstErr error
+	note := func(err error) {
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	// Running sessions (the only live ones: GET /api/session/active maps
+	// session IDs to {type: "running"}).
+	var active struct {
+		Data map[string]struct {
+			Type string `json:"type"`
+		} `json:"data"`
+	}
+	if err := c.get(ctx, "/api/session/active", &active); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(active.Data))
+	for id := range active.Data {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	if len(ids) > maxSnapshotSessions {
+		note(fmt.Errorf("session status contains %d sessions; snapshot capped at %d", len(ids), maxSnapshotSessions))
+		ids = ids[:maxSnapshotSessions]
+	}
+	for _, id := range ids {
+		props, _ := json.Marshal(map[string]any{
+			"sessionID": id,
+			"status":    map[string]any{"type": "busy"},
+		})
+		out = append(out, Envelope{Type: EventSessionStatus, API: 2, Properties: props})
+	}
+
+	// Titles/directories/parents for the live sessions, as metadata-only
+	// session.renamed frames. They follow the status frames so the workflow
+	// already exists.
+	dirs := map[string]bool{}
+	for _, id := range ids {
+		var resp struct {
+			Data struct {
+				Title    string `json:"title"`
+				ParentID string `json:"parentID"`
+				Location struct {
+					Directory string `json:"directory"`
+				} `json:"location"`
+			} `json:"data"`
+		}
+		if err := c.get(ctx, "/api/session/"+id, &resp); err != nil {
+			note(err)
+			continue
+		}
+		dirs[resp.Data.Location.Directory] = true
+		props, _ := json.Marshal(map[string]any{
+			"sessionID": id,
+			"title":     resp.Data.Title,
+			"directory": resp.Data.Location.Directory,
+			"parentID":  resp.Data.ParentID,
+		})
+		out = append(out, Envelope{Type: EventV2SessionRenamed, API: 2, Properties: props})
+	}
+
+	// Pending permission asks, per location (the endpoint is
+	// location-scoped; the live sessions' directories cover every location
+	// that can have one).
+	for dir := range dirs {
+		var resp struct {
+			Data []json.RawMessage `json:"data"`
+		}
+		if err := c.get(ctx, "/api/permission/request?location[directory]="+url.QueryEscape(dir), &resp); err != nil {
+			note(err)
+			continue
+		}
+		for _, p := range resp.Data {
+			out = append(out, Envelope{Type: EventPermissionAsked, API: 2, Properties: p})
+		}
+	}
+
+	// Pending forms (v2's questions), per session.
+	for _, id := range ids {
+		var resp struct {
+			Data []json.RawMessage `json:"data"`
+		}
+		if err := c.get(ctx, "/api/session/"+id+"/form", &resp); err != nil {
+			note(err)
+			continue
+		}
+		for _, f := range resp.Data {
+			props, _ := json.Marshal(map[string]any{"form": json.RawMessage(f)})
+			out = append(out, Envelope{Type: EventV2FormCreated, API: 2, Properties: props})
+		}
+	}
+	return out, firstErr
+}
+
 // post sends a JSON body to path and treats any non-2xx as an error.
 func (c *Client) post(ctx context.Context, path string, body any) error {
 	buf, err := json.Marshal(body)
@@ -442,9 +612,14 @@ func (c *Client) post(ctx context.Context, path string, body any) error {
 }
 
 // PromptAsync pushes text into a session, exactly as if you'd typed it.
-// POST /session/{sessionID}/prompt_async (204 on success). The body requires
-// a `parts` array; a bare {"text": ...} is rejected.
+// v1: POST /session/{sessionID}/prompt_async (204 on success); the body
+// requires a `parts` array; a bare {"text": ...} is rejected.
+// v2: POST /api/session/{sessionID}/prompt with {"text": ...}; the server
+// admits the prompt into the session's inbox and returns immediately.
 func (c *Client) PromptAsync(ctx context.Context, sessionID, text string) error {
+	if c.apiVersion(ctx) == 2 {
+		return c.post(ctx, fmt.Sprintf("/api/session/%s/prompt", sessionID), map[string]string{"text": text})
+	}
 	body := map[string]any{
 		"parts": []map[string]string{{"type": "text", "text": text}},
 	}
@@ -453,16 +628,63 @@ func (c *Client) PromptAsync(ctx context.Context, sessionID, text string) error 
 
 // ResolvePermission answers a pending permission ask. reply is one of
 // "once" | "always" | "reject". requestID is the `id` from permission.asked.
-// POST /permission/{requestID}/reply. (The older
+// v1: POST /permission/{requestID}/reply (the older
 // /session/{id}/permissions/{id} route still exists but is deprecated and
-// takes {"response": ...} instead.)
-func (c *Client) ResolvePermission(ctx context.Context, requestID, reply string) error {
+// takes {"response": ...} instead). v2: the route lives under the session:
+// POST /api/session/{sessionID}/permission/{requestID}/reply.
+func (c *Client) ResolvePermission(ctx context.Context, sessionID, requestID, reply string) error {
+	if c.apiVersion(ctx) == 2 {
+		return c.post(ctx, fmt.Sprintf("/api/session/%s/permission/%s/reply", sessionID, requestID),
+			map[string]string{"decision": reply})
+	}
 	return c.post(ctx, fmt.Sprintf("/permission/%s/reply", requestID), map[string]string{"reply": reply})
 }
 
-// ReplyQuestion answers a pending question ask. answers has one entry per
-// question, each a list of the selected option labels. requestID is the `id`
-// from question.asked. POST /question/{requestID}/reply.
+// ReplyQuestion answers a pending question ask (v1). answers has one entry
+// per question, each a list of the selected option labels. requestID is the
+// `id` from question.asked. POST /question/{requestID}/reply.
 func (c *Client) ReplyQuestion(ctx context.Context, requestID string, answers [][]string) error {
 	return c.post(ctx, fmt.Sprintf("/question/%s/reply", requestID), map[string]any{"answers": answers})
+}
+
+// ReplyForm answers a pending form (v2's replacement for questions).
+// POST /api/session/{sessionID}/form/{formID}/reply with one value per
+// field, keyed by the field's key. Chosen labels are mapped back to their
+// machine values through the ask's OptionValues; a typed answer (FreeText)
+// is sent as-is. Multiselect fields take an array, everything else a single
+// string.
+func (c *Client) ReplyForm(ctx context.Context, sessionID string, ask adapter.Ask, answers [][]string) error {
+	answer := make(map[string]any, len(ask.Questions))
+	for i, q := range ask.Questions {
+		if i >= len(answers) {
+			return fmt.Errorf("form answer for %q is missing (question %d of %d)", q.Key, i+1, len(ask.Questions))
+		}
+		var vals []string
+		for _, chosen := range answers[i] {
+			vals = append(vals, optionValue(q, chosen))
+		}
+		switch {
+		case q.Multiple:
+			answer[q.Key] = vals
+		case len(vals) == 1:
+			answer[q.Key] = vals[0]
+		default:
+			return fmt.Errorf("form field %q takes one answer, got %v", q.Key, answers[i])
+		}
+	}
+	return c.post(ctx, fmt.Sprintf("/api/session/%s/form/%s/reply", sessionID, ask.ID),
+		map[string]any{"answer": answer})
+}
+
+// optionValue maps a chosen option label to the machine value the tool
+// expects, when it distinguishes the two.
+func optionValue(q adapter.AskQuestion, label string) string {
+	if len(q.OptionValues) == len(q.Options) && len(q.OptionValues) > 0 {
+		for i, o := range q.Options {
+			if o == label {
+				return q.OptionValues[i]
+			}
+		}
+	}
+	return label
 }
