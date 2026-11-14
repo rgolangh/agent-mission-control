@@ -129,3 +129,26 @@
   border-radius: 6px;
   background-color: rgba(205, 214, 244, 0.06);
 }
+
+/* View row: All / Needs you / Waiting / Running, with the shortcut hint. */
+.agent-mission-control-view-row {
+  spacing: 6px;
+  padding: 4px 10px 8px;
+}
+.agent-mission-control-view {
+  padding: 4px 8px;
+  border: 1px solid rgba(205, 214, 244, 0.16);
+  border-radius: 6px;
+  background-color: rgba(205, 214, 244, 0.05);
+  font-size: 0.82em;
+}
+.agent-mission-control-view:hover,
+.agent-mission-control-view:focus,
+.agent-mission-control-view-selected {
+  background-color: rgba(205, 214, 244, 0.16);
+}
+.agent-mission-control-shortcut-hint {
+  padding-top: 3px;
+  color: #a6adc8;
+  font-size: 0.72em;
+}

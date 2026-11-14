@@ -3,9 +3,16 @@
 A top-bar indicator for GNOME Shell 45 and later:
 - **Indicator:** counts the coding-agent workflows that need you (waiting on
   an answer, stuck or failed), in red when any do.
-- **Menu:** one entry per workflow, most urgent first. Answer a question with
-  one click, type a reply or follow-up, or jump to the agent's terminal window.
-  Running workflows show a three-dot Larson scanner in their cards.
+- **Menu:** one entry per workflow, most urgent first, with **All**, **Needs
+  you**, **Waiting**, and **Running** views (buttons, or `Ctrl+1`–`Ctrl+4`;
+  `Ctrl+R` refreshes). All is the default, so idle and completed workflows
+  remain visible. Answer a question with one click, type a reply or
+  follow-up, or jump to the agent's terminal window. Running workflows show
+  a three-dot Larson scanner in their cards. While the menu is open it
+  updates in place, and updates preserve in-progress reply text and caret
+  position, as well as multi-select choices.
+- **Global shortcut:** `<Super><Alt>m` toggles the menu (from the extension's
+  settings; an empty accelerator list disables it).
 - **Notifications:** a desktop notification when an agent starts needing you.
 - **Daemon down:** a dim `✕` in the indicator, and the menu says why (not
   installed, not set up, stopped, token missing or refused, not answering)
@@ -30,6 +37,16 @@ gnome-extensions enable agent-mission-control@rgolangh.github.io
 (`amc install --enable` runs that for you.) On Wayland, GNOME Shell
 only loads a newly installed extension after you log out and back in.
 
+The global shortcut can be changed without touching code, by writing another
+accelerator list, e.g.
+`dconf write /org/gnome/shell/extensions/agent-mission-control/toggle-menu "['<Super><Shift>m']"`;
+run `dconf write /org/gnome/shell/extensions/agent-mission-control/toggle-menu "[]"`
+to disable it.
+
+To package a local build, include `schemas/gschemas.compiled` in the extension
+bundle along with the schema XML; `make gnome-schemas` regenerates it after
+schema changes.
+
 Each release also has `agent-mission-control@rgolangh.github.io.shell-extension.zip`
 for `gnome-extensions install`.
 
@@ -37,8 +54,8 @@ for `gnome-extensions install`.
 
 | File | What | Tested by |
 |---|---|---|
-| `model.js` | Pure logic: urgency order, counts, summaries, which workflows newly need you, why the daemon is down | `gjs -m test/model.test.js` (also in CI) |
+| `model.js` | Pure logic: urgency order, views, counts, summaries, which workflows newly need you, why the daemon is down | `gjs -m test/model.test.js` (also in CI) |
 | `client.js` | libsoup 3 client, token handling and re-reading after a daemon restart, on-disk probe while down | `gjs -m test/client.test.js` against a running daemon |
-| `extension.js` | Panel button, menu, notifications, window focusing | GNOME Shell only |
+| `extension.js` | Panel button, menu, views and shortcuts, notifications, window focusing | GNOME Shell only |
 
 Debug a running copy with `journalctl -f -o cat /usr/bin/gnome-shell`.

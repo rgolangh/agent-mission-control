@@ -41,7 +41,7 @@ package() {
   install -Dm755 build/amc "$pkgdir/usr/bin/amc"
   install -Dm644 packaging/systemd/agent-mission-control.service "$pkgdir/usr/lib/systemd/user/agent-mission-control.service"
   install -Dm644 -t "$pkgdir/usr/share/gnome-shell/extensions/$_uuid/" \
-    ui/gnome/{metadata.json,extension.js,client.js,model.js,stylesheet.css}
+    ui/gnome/{metadata.json,extension.js,client.js,model.js,stylesheet.css,schemas/org.gnome.shell.extensions.agent-mission-control.gschema.xml,schemas/gschemas.compiled}
   packaging/install-share.sh "$pkgdir/usr/share/$pkgname" # linked by amc install
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 -t "$pkgdir/usr/share/doc/$pkgname/" README.md SECURITY.md
