@@ -296,6 +296,16 @@ to a known OpenCode install.
 > `TestSnapshotRejectsOversizedJSONResponse`, and
 > `TestSnapshotCapsNumberOfSessions`.
 
+> **v2 exception** (2026-11-14). OpenCode v2's shared background service is
+> the one discovered endpoint that does receive a password automatically:
+> the service password from `~/.config/opencode/service.json` (0600). An
+> impostor must not harvest it, so before sending anything the daemon asks
+> the candidate's `GET /api/info` — authenticated — and requires its
+> reported `pid` to equal the PID that owns the listening socket (mapped via
+> `/proc`). Only the real service in that exact process can answer that way;
+> a mismatched endpoint is skipped. Unauthenticated discovery frames (the
+> `401 UnauthorizedError` identity probe) never carry the password.
+
 **L5. Supply chain.** *Design.*
 The bridge would install from GitHub into **every** OpenCode process, and the
 Claude plugin runs `amc` from `PATH` on every hook. *Fix:* pin
@@ -383,7 +393,7 @@ HTTP/2 (h2c refused). Bridge: health open, no token → 401, forged `Host` /
 | N4 | The token file outlived the daemon, and the UIs kept calling 127.0.0.1:4200 while it was down: on a shared machine, a user binding that port got the (stale) token, could show fake workflows and receive typed answers. *Design.* | Low (shared machines) | The daemon removes its token file on shutdown (only if it is still its own). The GNOME client re-reads the token before every request and sends nothing without one; the widget's FileView drops the token when the file goes (verified) and `Api.request` sends nothing without one. Tests: `TestTokenFileLivesOnlyAsLongAsTheDaemon`, `client.test.js` (a listener on the port saw 0 connections). Live: stop → no token file, start → new one. |
 | N5 | No HTTP server timeouts: local processes could hold connections open before authenticating. *Design.* | Low | `ReadHeaderTimeout` 5s, `IdleTimeout` 2m, 64 KB header cap (no write timeout: answers wait on agents). Live: a half-sent request is closed after 5.0s. |
 | N6 | Bidi overrides and zero-width characters in agent text could make titles and questions display differently than they read (CLI, GNOME, QML). *Design.* | Low | With L1: `adapter.CleanText` at ingest; GNOME's `clean()` strips the same set. |
-| N7 | A same-user process named `opencode` could receive the shared server password through auto-discovery, and OpenCode responses could consume unbounded memory or time. *Design.* | Low | Passwords are limited to directly configured URLs; discovery skips endpoints that require auth. JSON responses are limited to 4 MiB each, snapshots to 16 MiB, 1,000 sessions and 30 seconds, and SSE frames to 1 MiB. Tests: `TestDiscoveredOpenCodeDoesNotReceiveConfiguredPassword`, `TestSnapshotRejectsOversizedJSONResponse`, `TestSnapshotCapsNumberOfSessions`, `TestSubscribeDropsOversizedSSEFrame`. |
+| N7 | A same-user process named `opencode` could receive the shared server password through auto-discovery, and OpenCode responses could consume unbounded memory or time. *Design.* | Low | Passwords are limited to directly configured URLs; v1 discovery skips endpoints that require auth. The v2 shared service is the one exception: its password is sent only after the endpoint's authenticated `GET /api/info` reports the same PID that owns the listening socket. JSON responses are limited to 4 MiB each, snapshots to 16 MiB, 1,000 sessions and 30 seconds, and SSE frames to 1 MiB. Tests: `TestDiscoveredOpenCodeDoesNotReceiveConfiguredPassword`, `TestScanFindsV2ServiceBehindItsWebUI`, `TestSnapshotRejectsOversizedJSONResponse`, `TestSnapshotCapsNumberOfSessions`, `TestSubscribeDropsOversizedSSEFrame`. |
 | N8 | Forged or never-ended sessions could grow workflow, parent-link and Claude adapter state without bound. *Design.* | Low | Store caps at 1,000 workflows per adapter / 2,000 total and 10,000 parent links; Claude adapter caps at 1,000 sessions and expires idle state/completed workflows after 24 hours. Tests: `TestWorkflowCountIsBounded`, `TestParentLinksAreBounded`, `TestPruneIdleOnlyRemovesCompletedWorkflows`, `TestExpireIdleSessions`, `TestNormalizeBoundsSessionState`. |
 
 Not findings: the transcript tail reader reads to end of file after

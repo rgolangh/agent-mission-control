@@ -15,7 +15,8 @@ you (or an orchestrating agent, over MCP) answer it.
 
 | Source | How it connects | You can |
 |---|---|---|
-| **OpenCode** | Daemon reads OpenCode's own HTTP/SSE API. A tiny plugin gives a plain `opencode` an authenticated local port so every session is discovered automatically | See state, answer questions, approve or reject permissions, send follow-ups |
+| **OpenCode v2** | The daemon finds the shared background service on its own loopback port, verifies it owns the port, and attaches with the service password from `~/.config/opencode/service.json`. No plugin, nothing installed into OpenCode | See state, answer questions, approve or reject permissions, send follow-ups |
+| **OpenCode v1** | Daemon reads OpenCode's own HTTP/SSE API. A tiny plugin gives a plain `opencode` an authenticated local port so every session is discovered automatically | See state, answer questions, approve or reject permissions, send follow-ups |
 | **Claude Code** | A hooks-only Claude Code plugin pushes session events to the daemon | See state, questions and permission prompts (answer in the terminal; Claude Code has no input API) |
 | **Codex** | Daemon connects to a shared Codex app-server Unix socket | See state, answer questions, approve or reject command and supported file requests, send follow-ups |
 
@@ -180,7 +181,7 @@ analysis is in [docs/threat-model.md](docs/threat-model.md).
 ## Status
 
 Early and moving fast; interfaces may change. Tested against OpenCode 1.18
-and Claude Code 2.1 on Linux. Planned: more adapters
+and 2.2 and Claude Code 2.1 on Linux. Planned: more adapters
 (GitHub PRs, Jira) linked to the sessions that produced them, and a shared
 web view.
 

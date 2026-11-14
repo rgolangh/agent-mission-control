@@ -42,6 +42,9 @@ func TestResponderWireRequests(t *testing.T) {
 	}
 
 	want := []captured{
+		// The client detects the server's API version once before the first
+		// request (this fake answers like neither, so it settles on v1).
+		{"GET", "/api/info", ""},
 		{"POST", "/question/que_1/reply", `{"answers":[["Spaces"]]}`},
 		{"POST", "/permission/per_1/reply", `{"reply":"once"}`},
 		{"POST", "/session/ses_1/prompt_async", `{"parts":[{"text":"add tests","type":"text"}]}`},

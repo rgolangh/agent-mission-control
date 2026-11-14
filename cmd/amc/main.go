@@ -199,10 +199,11 @@ func serve(args []string) error {
 		}()
 	}
 
-	// watch runs one OpenCode adapter until ctx is cancelled. pid is the
-	// server's process when discovery found it (0 for -opencode URLs).
-	watch := func(ctx context.Context, url string, pid int) {
-		client := newOpenCodeClient(url, pid, *password)
+	// watchClient runs one OpenCode adapter until ctx is cancelled, with an
+	// already-built client (the v2 service is attached with its own
+	// password, not the bridge token). pid is the server's process when
+	// discovery found it (0 for -opencode URLs).
+	watchClient := func(ctx context.Context, client *opencode.Client, url string, pid int) {
 		onEvent := func(env opencode.Envelope) {
 			if sid := opencode.SessionOf(env); sid != "" {
 				live := store.WorkflowFor(adapter.SourceEvent{Adapter: "opencode", SourceID: sid})
@@ -244,6 +245,12 @@ func serve(args []string) error {
 		store.MarkStale(url, "OpenCode at "+url+" went away")
 	}
 
+	// watch attaches with the default credentials: the -opencode-password
+	// flag for explicit URLs, the bridge token for discovered v1 servers.
+	watch := func(ctx context.Context, url string, pid int) {
+		watchClient(ctx, newOpenCodeClient(url, pid, *password), url, pid)
+	}
+
 	explicit := map[string]bool{}
 	for _, url := range servers {
 		explicit[discovery.Canonical(url)] = true
@@ -260,6 +267,27 @@ func serve(args []string) error {
 				case discovery.Added:
 					if explicit[discovery.Canonical(ep.URL)] {
 						continue // already covered by -opencode
+					}
+					if ep.API == 2 {
+						// The v2 shared service: attach with its own password,
+						// but only after it proves it is the process behind the
+						// port (a same-user impostor must not get the password).
+						pw, err := opencode.ServicePassword()
+						if err != nil {
+							logf("found OpenCode v2 at %s (pid %d) but cannot read its service password: %v", ep.URL, ep.PID, err)
+							continue
+						}
+						if !opencode.VerifyService(ctx, ep.URL, pw, ep.PID) {
+							logf("found OpenCode v2 at %s (pid %d) but it did not verify as that process; not watching", ep.URL, ep.PID)
+							continue
+						}
+						wctx, cancel := context.WithCancel(ctx)
+						active[ep.Key()] = cancel
+						logf("discovered OpenCode v2 service at %s (pid %d)", ep.URL, ep.PID)
+						client := opencode.New(ep.URL)
+						client.Password, client.API = pw, 2
+						go watchClient(wctx, client, ep.URL, ep.PID)
+						continue
 					}
 					if ep.AuthRequired {
 						logf("found password-protected OpenCode at %s (pid %d); not sending credentials during discovery, configure it explicitly with -opencode", ep.URL, ep.PID)

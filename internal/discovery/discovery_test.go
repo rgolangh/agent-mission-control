@@ -179,6 +179,69 @@ func TestScanMatchesInterpreterWrappedOpenCode(t *testing.T) {
 	}
 }
 
+// v2Service answers like OpenCode v2's shared service: the web UI on
+// unknown paths, /api/info only with credentials.
+func v2Service(t *testing.T, authenticated bool) *httptest.Server {
+	t.Helper()
+	var sawAuth bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/info":
+			if r.Header.Get("Authorization") == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				fmt.Fprint(w, `{"_tag":"UnauthorizedError","message":"Authentication required"}`)
+				return
+			}
+			sawAuth = true
+			fmt.Fprint(w, `{"version":"2.2.5","pid":11361,"urls":["http://127.0.0.1:1"]}`)
+		default:
+			fmt.Fprint(w, "<html>ui</html>")
+		}
+	}))
+	t.Cleanup(func() {
+		if authenticated && !sawAuth {
+			t.Error("nobody checked /api/info with credentials")
+		}
+	})
+	return srv
+}
+
+func TestScanFindsV2ServiceBehindItsWebUI(t *testing.T) {
+	srv := v2Service(t, false)
+	defer srv.Close()
+	f := newFakeProc(t)
+	f.listen(11361, "opencode", portOf(t, srv), 9007)
+
+	got := f.scanner().Scan(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("endpoints = %+v, want the v2 service", got)
+	}
+	// The version stays unknown: discovery never sends credentials to read
+	// /api/info on a protected service.
+	if got[0].API != 2 || got[0].Version != "" || !got[0].AuthRequired {
+		t.Errorf("endpoint = %+v, want API 2, no version, AuthRequired", got[0])
+	}
+}
+
+func TestScanFindsV2ServiceAllowingUnauthenticatedInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/info" {
+			fmt.Fprint(w, `{"version":"2.3.0","pid":7,"urls":["http://127.0.0.1:1"]}`)
+			return
+		}
+		fmt.Fprint(w, "<html>ui</html>")
+	}))
+	defer srv.Close()
+	f := newFakeProc(t)
+	f.listen(7, "opencode", portOf(t, srv), 9008)
+
+	got := f.scanner().Scan(context.Background())
+	if len(got) != 1 || got[0].API != 2 || got[0].Version != "2.3.0" || got[0].AuthRequired {
+		t.Errorf("endpoints = %+v, want API 2 v2.3.0 without AuthRequired", got)
+	}
+}
+
 func TestScanFindsMultipleServers(t *testing.T) {
 	a := httptest.NewServer(healthy("1.18.30"))
 	b := httptest.NewServer(healthy("1.18.31"))

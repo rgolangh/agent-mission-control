@@ -1,6 +1,10 @@
-// agent-mission-control bridge for OpenCode.
+// agent-mission-control bridge for OpenCode **v1**.
 //
-// A plain `opencode` runs its server in-process with no TCP port, so
+// Not needed on OpenCode v2: the v2 shared background service already
+// listens on a loopback port with basic auth, which agent-mission-control
+// discovers and attaches to directly (its password lives in
+// ~/.config/opencode/service.json). This plugin exists because a v1
+// `opencode` runs its server in-process with no TCP port, so
 // agent-mission-control's discovery (which looks for listening opencode
 // processes) can't see it. This plugin opens one: a loopback-only port that
 // forwards requests to the in-process server. The daemon then finds and
