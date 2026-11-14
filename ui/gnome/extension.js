@@ -172,7 +172,9 @@ class Indicator extends PanelMenu.Button {
             return Clutter.EVENT_STOP;
         }
 
-        if (event.get_key_symbol() === Clutter.KEY_r) {
+        // KEY_r and KEY_R: with CapsLock (or Shift) held the keysym is
+        // uppercase and would otherwise silently not match.
+        if (event.get_key_symbol() === Clutter.KEY_r || event.get_key_symbol() === Clutter.KEY_R) {
             this._viewButtons.get(this._view)?.button.grab_key_focus();
             this._refresh();
             return Clutter.EVENT_STOP;
@@ -319,6 +321,15 @@ class Indicator extends PanelMenu.Button {
         const workflows = model.filterWorkflows(this._workflows, this._view);
         const visible = new Set(workflows.map(w => this._workflowKey(w)));
         const present = new Set(this._workflows.map(w => this._workflowKey(w)));
+
+        // Input state of workflows that are gone from the daemon's list is
+        // dead weight: prune it, or it grows without bound over a long
+        // session of short-lived agents (cards are cleared on every
+        // closed-menu rebuild, so the per-card removal below is not enough).
+        for (const id of this._cardState.keys()) {
+            if (!present.has(id))
+                this._cardState.delete(id);
+        }
 
         for (const [id, card] of this._cards) {
             if (present.has(id))
