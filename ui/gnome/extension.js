@@ -10,6 +10,7 @@ import Gio from 'gi://Gio';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -20,6 +21,12 @@ import * as model from './model.js';
 
 const POLL_SECONDS = 2;
 const HOME = GLib.get_home_dir();
+
+// St.BoxLayout gained `orientation` in GNOME 48 and removed `vertical` in
+// 51; metadata.json claims 45–51, so build the property each era accepts.
+const VERTICAL_LAYOUT = parseInt(Config.PACKAGE_VERSION) >= 48
+    ? {orientation: Clutter.Orientation.VERTICAL}
+    : {vertical: true};
 
 const Indicator = GObject.registerClass(
 class Indicator extends PanelMenu.Button {
@@ -141,7 +148,7 @@ class Indicator extends PanelMenu.Button {
             can_focus: false,
             style_class: 'agent-mission-control-header',
         });
-        const heading = new St.BoxLayout({vertical: true, x_expand: true});
+        const heading = new St.BoxLayout({...VERTICAL_LAYOUT, x_expand: true});
         heading.add_child(new St.Label({
             text: 'Agent Mission Control',
             style_class: 'agent-mission-control-header-title',
@@ -221,7 +228,7 @@ class Indicator extends PanelMenu.Button {
             style_class: 'agent-mission-control-card',
         });
         const content = new St.BoxLayout({
-            vertical: true,
+            ...VERTICAL_LAYOUT,
             x_expand: true,
             style_class: 'agent-mission-control-card-content',
         });
