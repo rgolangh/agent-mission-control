@@ -34,8 +34,11 @@ codex --remote unix:///tmp/codex-amc.sock
 amc serve -codex-socket /tmp/codex-amc.sock
 ```
 
-The adapter watches sessions loaded on that server. Existing sessions in a
-different Codex process are not automatically attached. Codex subagents are
+The adapter watches sessions loaded on that server. It subscribes to a session
+only while it is working or waiting for input, so after its terminal closes
+an idle session is unloaded by the app-server (about a minute later) and
+disappears from `amc list`; `amc send` to a finished session resubscribes it.
+Existing sessions in a different Codex process are not automatically attached. Codex subagents are
 excluded because Codex does not accept direct messages to them. Structured Codex
 questions use an experimental app-server interface. Only the listed approval
 choices are offered; other approval request types must be answered in Codex.

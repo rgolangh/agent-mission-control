@@ -42,14 +42,15 @@ type Client struct {
 	calls       map[string]chan message
 	asks        map[string]pendingAsk
 	turns       map[string]string
-	subscribed  map[string]bool
+	threads     map[string]bool // loaded threads we track; true while we hold a subscription
+	finished    map[string]bool // subscribed threads gone idle, to unsubscribe on the next sync
 	subagents   map[string]bool
 	fileChanges map[string]string
 	next        atomic.Int64
 }
 
 func New(socket string, store *daemon.Store, log func(string, ...any)) *Client {
-	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, subscribed: map[string]bool{}, subagents: map[string]bool{}, fileChanges: map[string]string{}}
+	return &Client{Socket: socket, Store: store, Log: log, calls: map[string]chan message{}, asks: map[string]pendingAsk{}, turns: map[string]string{}, threads: map[string]bool{}, finished: map[string]bool{}, subagents: map[string]bool{}, fileChanges: map[string]string{}}
 }
 func (c *Client) origin() string { return "codex:" + c.Socket }
 func (c *Client) emit(ev adapter.SourceEvent) {
@@ -101,7 +102,8 @@ func (c *Client) run(ctx context.Context) error {
 	c.calls = map[string]chan message{}
 	c.asks = map[string]pendingAsk{}
 	c.turns = map[string]string{}
-	c.subscribed = map[string]bool{}
+	c.threads = map[string]bool{}
+	c.finished = map[string]bool{}
 	c.subagents = map[string]bool{}
 	c.fileChanges = map[string]string{}
 	c.mu.Unlock()
@@ -215,33 +217,42 @@ func (c *Client) sync(ctx context.Context) error {
 	}
 	c.mu.Lock()
 	var removed []string
-	for id := range c.subscribed {
+	for id := range c.threads {
 		if !loaded[id] {
-			delete(c.subscribed, id)
-			delete(c.subagents, id)
-			delete(c.turns, id)
-			for key := range c.asks {
-				if strings.HasPrefix(key, id+":") {
-					delete(c.asks, key)
-				}
-			}
-			for key := range c.fileChanges {
-				if strings.HasPrefix(key, id+":") {
-					delete(c.fileChanges, key)
-				}
-			}
+			c.forgetLocked(id)
 			removed = append(removed, id)
 		}
+	}
+	var idle []string
+	for id := range c.finished {
+		idle = append(idle, id)
 	}
 	c.mu.Unlock()
 	for _, id := range removed {
 		c.Store.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: id, Gone: true, Timestamp: time.Now()})
 	}
+	// Holding a subscription keeps a thread loaded, so the app-server would
+	// never unload a thread whose terminal is gone. Let go of idle ones: the
+	// server unloads them once no client is left and the diff above drops them.
+	for _, id := range idle {
+		if _, err := c.call(ctx, "thread/unsubscribe", map[string]any{"threadId": id}); err != nil {
+			continue
+		}
+		c.mu.Lock()
+		if c.finished[id] {
+			delete(c.finished, id)
+			if _, ok := c.threads[id]; ok {
+				c.threads[id] = false
+			}
+		}
+		c.mu.Unlock()
+	}
 	for id := range loaded {
 		c.mu.Lock()
-		known := c.subscribed[id]
+		subscribed, known := c.threads[id]
+		child := c.subagents[id]
 		c.mu.Unlock()
-		if known {
+		if subscribed || child {
 			continue
 		}
 		read, err := c.call(ctx, "thread/read", map[string]any{"threadId": id})
@@ -250,40 +261,94 @@ func (c *Client) sync(ctx context.Context) error {
 		}
 		if isSubagent(read.Result) {
 			c.mu.Lock()
-			c.subagents[id], c.subscribed[id] = true, true
+			c.subagents[id], c.threads[id] = true, false
 			c.mu.Unlock()
 			c.Store.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: id, Gone: true, Timestamp: time.Now()})
 			continue
 		}
-		r, err := c.call(ctx, "thread/resume", map[string]any{"threadId": id, "excludeTurns": true})
-		if err != nil {
+		var x threadInfo
+		if json.Unmarshal(read.Result, &x) != nil {
 			continue
 		}
-		var x struct {
-			Thread struct {
-				ID     string `json:"id"`
-				Name   string `json:"name"`
-				Cwd    string `json:"cwd"`
-				Status struct {
-					Type        string   `json:"type"`
-					ActiveFlags []string `json:"activeFlags"`
-				} `json:"status"`
-			} `json:"thread"`
-		}
-		if json.Unmarshal(r.Result, &x) != nil {
+		// Only subscribe while the agent works or waits: an idle thread is
+		// polled with thread/read until it becomes active again.
+		if x.Thread.Status.Type != "active" {
+			if !known {
+				c.mu.Lock()
+				c.threads[id] = false
+				c.mu.Unlock()
+				c.emit(adapter.SourceEvent{SourceID: id, Title: x.Thread.Name, Location: x.Thread.Cwd, Status: adapter.StatusDone, Message: "connected"})
+			}
 			continue
 		}
-		c.mu.Lock()
-		c.subscribed[id] = true
-		c.mu.Unlock()
+		if err := c.subscribe(ctx, id); err != nil {
+			continue
+		}
 		c.Log("connected to Codex session %s", id)
-		status := adapter.StatusDone
-		if x.Thread.Status.Type == "active" {
-			status = adapter.StatusRunning
-		}
-		c.emit(adapter.SourceEvent{SourceID: id, Title: x.Thread.Name, Location: x.Thread.Cwd, Status: status, Message: "connected"})
 	}
 	return nil
+}
+
+type threadInfo struct {
+	Thread struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Cwd    string `json:"cwd"`
+		Status struct {
+			Type        string   `json:"type"`
+			ActiveFlags []string `json:"activeFlags"`
+		} `json:"status"`
+	} `json:"thread"`
+}
+
+// subscribe resumes a thread so its notifications (and pending server
+// requests, which the app-server replays) reach us.
+func (c *Client) subscribe(ctx context.Context, id string) error {
+	r, err := c.call(ctx, "thread/resume", map[string]any{"threadId": id, "excludeTurns": true})
+	if err != nil {
+		return err
+	}
+	var x threadInfo
+	if err := json.Unmarshal(r.Result, &x); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.threads[id] = true
+	delete(c.finished, id)
+	c.mu.Unlock()
+	status := adapter.StatusDone
+	if x.Thread.Status.Type == "active" {
+		status = adapter.StatusRunning
+	}
+	c.emit(adapter.SourceEvent{SourceID: id, Title: x.Thread.Name, Location: x.Thread.Cwd, Status: status, Message: "connected"})
+	return nil
+}
+
+// drop removes a thread the app-server unloaded, without waiting for the
+// loaded-list diff in sync to notice.
+func (c *Client) drop(id string) {
+	c.mu.Lock()
+	c.forgetLocked(id)
+	c.mu.Unlock()
+	c.Store.Apply(adapter.SourceEvent{Adapter: "codex", SourceID: id, Gone: true, Timestamp: time.Now()})
+}
+
+// forgetLocked drops all client state of a thread that is no longer loaded.
+func (c *Client) forgetLocked(id string) {
+	delete(c.threads, id)
+	delete(c.finished, id)
+	delete(c.subagents, id)
+	delete(c.turns, id)
+	for key := range c.asks {
+		if strings.HasPrefix(key, id+":") {
+			delete(c.asks, key)
+		}
+	}
+	for key := range c.fileChanges {
+		if strings.HasPrefix(key, id+":") {
+			delete(c.fileChanges, key)
+		}
+	}
 }
 
 func isSubagent(raw json.RawMessage) bool {
@@ -401,6 +466,7 @@ func (c *Client) dispatch(m message) {
 	case "turn/started":
 		c.mu.Lock()
 		c.turns[p.ThreadID] = p.Turn.ID
+		delete(c.finished, p.ThreadID)
 		c.mu.Unlock()
 		ev.Status = adapter.StatusRunning
 		ev.Message = "working"
@@ -412,6 +478,9 @@ func (c *Client) dispatch(m message) {
 				delete(c.asks, key)
 			}
 		}
+		if c.threads[p.ThreadID] {
+			c.finished[p.ThreadID] = true
+		}
 		c.mu.Unlock()
 		ev.Status = adapter.StatusDone
 		ev.Message = "turn completed"
@@ -419,8 +488,26 @@ func (c *Client) dispatch(m message) {
 			ev.Status = adapter.StatusFailed
 			ev.Message = "turn failed"
 		}
+	case "thread/closed":
+		c.drop(p.ThreadID)
+		return
 	case "thread/status/changed":
-		if p.Status.Type != "active" {
+		switch p.Status.Type {
+		case "active":
+			c.mu.Lock()
+			delete(c.finished, p.ThreadID)
+			c.mu.Unlock()
+		case "idle":
+			c.mu.Lock()
+			if c.threads[p.ThreadID] && c.turns[p.ThreadID] == "" {
+				c.finished[p.ThreadID] = true
+			}
+			c.mu.Unlock()
+			return
+		case "notLoaded":
+			c.drop(p.ThreadID)
+			return
+		default:
 			return
 		}
 		ev.Status = adapter.StatusRunning
@@ -613,7 +700,15 @@ func contains(values []string, value string) bool {
 func (c *Client) SendText(ctx context.Context, source, text string) error {
 	c.mu.Lock()
 	turn := c.turns[source]
+	subscribed := c.threads[source]
 	c.mu.Unlock()
+	// An idle thread was unsubscribed (and may be unloaded): resume it so
+	// the new turn's progress reaches us.
+	if !subscribed {
+		if err := c.subscribe(ctx, source); err != nil {
+			return fmt.Errorf("resuming Codex thread: %w", err)
+		}
+	}
 	if turn == "" {
 		result, err := c.call(ctx, "thread/turns/list", map[string]any{"threadId": source, "limit": 1, "sortDirection": "desc", "itemsView": "notLoaded"})
 		if err != nil {

@@ -99,7 +99,7 @@ func TestReconnectReplaysAndExternalAnswerClearsApproval(t *testing.T) {
 				}
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"data": ids}})
 			case "thread/read":
-				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "source": "cli"}}})
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "source": "cli", "status": map[string]any{"type": "active", "activeFlags": []string{"waitingOnApproval"}}}}})
 			case "thread/resume":
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": map[string]any{"thread": map[string]any{"id": "test-thread", "status": map[string]any{"type": "active"}}}})
 				_ = wsjson.Write(ctx, conn, map[string]any{"id": 0, "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": "test-thread", "command": "printf test", "availableDecisions": []string{"accept", "cancel"}}})
@@ -212,5 +212,171 @@ func TestTokenUsageDoesNotChangeStatus(t *testing.T) {
 	w, _ := s.Resolve("codex:test-thread")
 	if w.Status != adapter.StatusRunning || w.TokenUsage == nil || w.TokenUsage.CachedInput != 800 || w.TokenUsage.Input != 1000 {
 		t.Fatalf("unexpected token usage: %+v", w)
+	}
+}
+
+// fakeServer is a scripted app-server for one thread whose status the test
+// sets. It records the methods called on it.
+type fakeServer struct {
+	path   string
+	status atomic.Value // thread status type
+	loaded atomic.Bool
+	calls  chan string
+}
+
+func startFake(t *testing.T, ctx context.Context, status string) *fakeServer {
+	t.Helper()
+	f := &fakeServer{path: filepath.Join(t.TempDir(), "app.sock"), calls: make(chan string, 64)}
+	f.status.Store(status)
+	f.loaded.Store(true)
+	l, err := net.Listen("unix", f.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.CloseNow()
+		for {
+			var m message
+			if wsjson.Read(ctx, conn, &m) != nil {
+				return
+			}
+			if m.Method != "thread/loaded/list" && m.Method != "initialize" && m.Method != "initialized" {
+				f.calls <- m.Method
+			}
+			thread := map[string]any{"id": "t", "name": "demo", "source": "cli", "status": map[string]any{"type": f.status.Load(), "activeFlags": []string{}}}
+			var result any = map[string]any{}
+			switch m.Method {
+			case "thread/loaded/list":
+				ids := []string{}
+				if f.loaded.Load() {
+					ids = []string{"t"}
+				}
+				result = map[string]any{"data": ids}
+			case "thread/read":
+				result = map[string]any{"thread": thread}
+			case "thread/resume": // subscribing loads the thread
+				f.loaded.Store(true)
+				result = map[string]any{"thread": thread}
+			case "thread/unsubscribe":
+				result = map[string]any{"status": "unsubscribed"}
+			case "thread/turns/list":
+				result = map[string]any{"data": []any{}}
+			case "turn/start":
+				result = map[string]any{"turn": map[string]any{"id": "turn-2"}}
+			}
+			if len(m.ID) > 0 {
+				_ = wsjson.Write(ctx, conn, map[string]any{"id": m.ID, "result": result})
+			}
+		}
+	})}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close() })
+	return f
+}
+
+// expect consumes recorded calls until want arrives; any call in forbidden fails.
+func (f *fakeServer) expect(t *testing.T, want string, forbidden ...string) {
+	t.Helper()
+	timeout := time.After(8 * time.Second)
+	for {
+		select {
+		case got := <-f.calls:
+			if got == want {
+				return
+			}
+			if contains(forbidden, got) {
+				t.Fatalf("unexpected %s while waiting for %s", got, want)
+			}
+		case <-timeout:
+			t.Fatalf("timed out waiting for %s", want)
+		}
+	}
+}
+
+func connect(t *testing.T, ctx context.Context, f *fakeServer) (*Client, *daemon.Store) {
+	t.Helper()
+	s := daemon.NewStore()
+	c := New(f.path, s, func(string, ...any) {})
+	go c.Run(ctx)
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := s.Resolve("codex:t"); err == nil {
+			return c, s
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("thread never listed")
+	return nil, nil
+}
+
+func TestIdleThreadIsListedButNotSubscribed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFake(t, ctx, "idle")
+	_, s := connect(t, ctx, f)
+	w, _ := s.Resolve("codex:t")
+	if w.Status != adapter.StatusDone || w.Title != "demo" {
+		t.Fatalf("unexpected idle workflow: %+v", w)
+	}
+	// Idle threads are polled, never resumed: that would keep them loaded.
+	f.expect(t, "thread/read")
+	f.expect(t, "thread/read", "thread/resume")
+	// Once active (say, a prompt typed in the TUI) the next poll subscribes.
+	f.status.Store("active")
+	f.expect(t, "thread/resume")
+}
+
+func TestFinishedThreadIsUnsubscribedAndDroppedOnUnload(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFake(t, ctx, "active")
+	c, s := connect(t, ctx, f)
+	f.expect(t, "thread/resume")
+	f.status.Store("idle")
+	// A notification from the server, delivered as dispatch would see it.
+	event(t, c, `{"method":"turn/completed","params":{"threadId":"t","turn":{"id":"turn-1","status":"completed"}}}`)
+	f.expect(t, "thread/unsubscribe")
+	// No client left: the app-server unloads the thread.
+	f.loaded.Store(false)
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if _, err := s.Resolve("codex:t"); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("unloaded thread still listed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSendToIdleThreadResumesFirst(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := startFake(t, ctx, "idle")
+	_, s := connect(t, ctx, f)
+	if err := s.SendText(ctx, "codex:t", "next step"); err != nil {
+		t.Fatal(err)
+	}
+	f.expect(t, "thread/resume", "turn/start")
+	f.expect(t, "turn/start")
+}
+
+func TestClosedThreadIsDropped(t *testing.T) {
+	s := daemon.NewStore()
+	c := New("/tmp/codex", s, func(string, ...any) {})
+	event(t, c, `{"method":"turn/started","params":{"threadId":"t","turn":{"id":"turn-1"}}}`)
+	event(t, c, `{"method":"thread/closed","params":{"threadId":"t"}}`)
+	if _, err := s.Resolve("codex:t"); err == nil {
+		t.Fatal("closed thread still listed")
+	}
+	event(t, c, `{"method":"turn/started","params":{"threadId":"u","turn":{"id":"turn-1"}}}`)
+	event(t, c, `{"method":"thread/status/changed","params":{"threadId":"u","status":{"type":"notLoaded"}}}`)
+	if _, err := s.Resolve("codex:u"); err == nil {
+		t.Fatal("unloaded thread still listed")
 	}
 }
