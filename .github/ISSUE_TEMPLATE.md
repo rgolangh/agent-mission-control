@@ -26,3 +26,19 @@ workaround?
 
 Steps to reproduce or a short example with paths, prompts, and agent output
 redacted. Do not include raw transcripts, command output, tokens, or secrets.
+
+## Want to work on this?
+
+If you’d like to help with this issue, leave a comment describing what you’d like to take on and briefly how you’d approach it. Please wait for a maintainer to confirm before starting; they can assign the issue once the scope is agreed.
+
+You can use this format:
+
+```text
+I'd like to work on this issue.
+
+What I'd like to take on:
+...
+
+My approach:
+...
+```
