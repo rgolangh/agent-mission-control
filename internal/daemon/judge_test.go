@@ -122,6 +122,36 @@ A few questions shape what I'd build:
 	}
 }
 
+// A closing question that asks the user to review or revise the delivered
+// work is a gate on the main work, not an offer of optional extra work.
+// Reproduces #27: these were classified as offer (done) because offerRe
+// matches "want me to" and mainWorkRe has no revision verbs.
+func TestJudgeReviewRequestClosing(t *testing.T) {
+	cases := []struct {
+		name   string
+		text   string
+		status adapter.Status
+		rule   string
+	}{
+		{"real closing from #27", "Created: rgolangh/agent-mission-control#25 — Explore orchestration…\n\nOne thing worth noting: the issue also flags that Claude Code workflows are observe-only.\n\nWant me to adjust anything?", adapter.StatusNeedsInput, "question"},
+		{"should I change anything", "The fix is in and tests pass.\n\nShould I change anything?", adapter.StatusNeedsInput, "question"},
+		{"want me to tweak it", "Rewrote the summary table.\n\nWant me to tweak it further?", adapter.StatusNeedsInput, "question"},
+		{"want me to revise the wording", "Drafted the announcement.\n\nWant me to revise the wording?", adapter.StatusNeedsInput, "question"},
+		{"would you like me to amend it", "Filed the report.\n\nWould you like me to amend it?", adapter.StatusNeedsInput, "question"},
+
+		// True offers of additional work stay done.
+		{"also update README", "Implemented the retry logic and added tests; all pass.\n\nWant me to also update the README?", adapter.StatusDone, "offer"},
+		{"also add regression test", "Fixed the bug in auth.go.\n\nWould you like me to add a regression test?", adapter.StatusDone, "offer"},
+		{"also add a CLI flag", "Want me to also add a CLI flag for it? The config option works already.", adapter.StatusDone, "offer"},
+	}
+	for _, c := range cases {
+		v := Judge(adapter.TurnEnd{Text: c.text, Finish: "stop", Replied: true})
+		if v.Status != c.status || v.Rule != c.rule {
+			t.Errorf("%s: got %s/%s (%q), want %s/%s", c.name, v.Status, v.Rule, v.Message, c.status, c.rule)
+		}
+	}
+}
+
 func TestJudgeMessagesCarryEvidence(t *testing.T) {
 	v := Judge(adapter.TurnEnd{Replied: true, Finish: "stop", Text: "Looked into it.\n\nShould I use **Redis** or Postgres?"})
 	if v.Message != "asks: Should I use Redis or Postgres?" {
