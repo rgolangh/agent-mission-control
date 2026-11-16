@@ -145,6 +145,8 @@ var (
 	greetingRe  = regexp.MustCompile(`(?i)^(hi|hello|hey)?[!,. ]*(what|how) can i (help|do for you|assist)|^(is there )?anything else\b`)
 	offerRe     = regexp.MustCompile(`(?i)^(so,? |and |also,? )?((do you )?want me to|would you like( me)? to|should i also|shall i also|i can also|if you('d| would) like|let me know if|need anything else|anything else)\b|\b(want|like) me to (also|additionally)\b`)
 	mainWorkRe  = regexp.MustCompile(`(?i)\b(proceed|go ahead|continue|start|begin|move forward)\b`)
+	revisionRe  = regexp.MustCompile(`(?i)\b(adjust|tweak|revise|amend|change|reword|rephrase)\b`)
+	additiveRe  = regexp.MustCompile(`(?i)\b(also|additionally|as well|too|more|another|extra|add|extend|create|write)\b`)
 	requestRe   = regexp.MustCompile(`(?i)^(please |could you |can you )?(let me know|tell me|confirm|choose|pick|select|decide|provide|share|clarify)\b.*\b(which|what|whether|how|where|when|who|your|if you (prefer|want)|or)\b`)
 	questionyRe = regexp.MustCompile(`(?i)\b(which|prefer|choose|pick|select|options?|questions?|decide|decisions?|need|confirm|your call|let me know|tell me)\b`)
 	waitingRe   = regexp.MustCompile(`(?i)\b(once|when|after|as soon as) you(?:'ve| have)? (confirm|decide|choose|reply|answer|approve|pick|grant|rename|fix|let me know|tell me|say)\b|\btell me (and|when|once|which|what|whether|if)\b|\blet me know (when|once|which|what|whether|how)\b|\byour call\b|\bwaiting (for|on) (you|your)\b|\bI'll wait\b`)
@@ -302,9 +304,16 @@ func closingListIntro(text string) string {
 
 // isOffer: the work is done and the question proposes optional extra work
 // ("Want me to also add tests?"), as opposed to needing a decision before it
-// can go on ("Should I proceed with the migration?").
+// can go on ("Should I proceed with the migration?") or asking you to review
+// the delivered work ("Want me to adjust anything?").
 func isOffer(q string) bool {
-	return offerRe.MatchString(q) && !mainWorkRe.MatchString(q)
+	if !offerRe.MatchString(q) || mainWorkRe.MatchString(q) {
+		return false
+	}
+	// A "want me to" closing with a revision verb and no additive marker
+	// ("also", "add", ...) revises the deliverable: a review gate, not an
+	// offer of new work.
+	return !(revisionRe.MatchString(q) && !additiveRe.MatchString(q))
 }
 
 // closingRequest finds a request for input in the last three sentences:
