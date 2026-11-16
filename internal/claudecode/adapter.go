@@ -28,6 +28,7 @@ import (
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
 	"github.com/rgolangh/agent-mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/terminal"
 )
 
 // Name is the adapter name: workflows are "claude-code:<session_id>".
@@ -58,7 +59,8 @@ type Hook struct {
 
 	LastAssistantMessage string `json:"last_assistant_message"` // Stop
 
-	AgentPID int `json:"mc_agent_pid"` // the claude process, found by the hook command
+	AgentPID int                `json:"mc_agent_pid"` // the claude process, found by the hook command
+	Terminal *terminal.Terminal `json:"mc_terminal"`  // the terminal tab it runs in, as the hook command found it
 }
 
 type session struct {
@@ -153,6 +155,7 @@ func (a *Adapter) Normalize(h Hook) (adapter.SourceEvent, bool) {
 		SourceID:  h.SessionID,
 		Location:  h.Cwd,
 		PID:       s.pid,
+		Terminal:  h.Terminal,
 		Timestamp: time.Now(),
 	}
 	// Claude Code writes generated titles (ai-title) into the transcript and

@@ -153,6 +153,15 @@ export function clean(text, max = 300) {
     return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
+// The command that selects a workflow's terminal tab, from the terminal its
+// source reported (the daemon validated it; checked again, as it ends up in
+// argv), or null. Mirrored in ui/omarchy/Api.qml (terminalFocus).
+export function terminalFocus(t) {
+    if (t && t.kind === 'kitty' && /^unix:[/@][^\x00-\x1f\x7f]+$/.test(t.address) && /^[1-9][0-9]*$/.test(t.target))
+        return ['kitten', '@', '--to', t.address, 'focus-window', '--match', `id:${t.target}`];
+    return null;
+}
+
 export const SERVICE = 'agent-mission-control.service';
 export const RELEASES = 'https://github.com/rgolangh/agent-mission-control/releases';
 

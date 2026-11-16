@@ -23,9 +23,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -251,6 +253,34 @@ func serve(args []string) error {
 		watchClient(ctx, newOpenCodeClient(url, pid, *password), url, pid)
 	}
 
+	// attachClients keeps the v2 service's workflows pointed at the TUIs they
+	// are open in: the service itself runs under the service manager, so
+	// its ancestry has no terminal for a UI to focus (issue #31).
+	attachClients := func(ctx context.Context, ep discovery.Endpoint) {
+		u, err := neturl.Parse(ep.URL)
+		if err != nil {
+			return
+		}
+		port, err := strconv.ParseUint(u.Port(), 10, 16)
+		if err != nil {
+			return
+		}
+		scanner := discovery.New()
+		tick := time.NewTicker(*discoverEvery)
+		defer tick.Stop()
+		for {
+			clients := scanner.Clients(ep.PID, uint16(port))
+			store.AttachClients(ep.URL, func(sid, dir string) int {
+				return discovery.ClientFor(clients, sid, dir)
+			})
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+		}
+	}
+
 	explicit := map[string]bool{}
 	for _, url := range servers {
 		explicit[discovery.Canonical(url)] = true
@@ -287,6 +317,7 @@ func serve(args []string) error {
 						client := opencode.New(ep.URL)
 						client.Password, client.API = pw, 2
 						go watchClient(wctx, client, ep.URL, ep.PID)
+						go attachClients(wctx, ep)
 						continue
 					}
 					if ep.AuthRequired {

@@ -13,6 +13,7 @@ import (
 	"github.com/rgolangh/agent-mission-control/internal/claudecode"
 	"github.com/rgolangh/agent-mission-control/internal/daemon"
 	"github.com/rgolangh/agent-mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/terminal"
 )
 
 // hookTimeout bounds how long a hook may delay the agent. Claude Code waits
@@ -54,6 +55,11 @@ func hook(args []string) error {
 			payload["mc_agent_pid"] = p
 			break
 		}
+	}
+	// The hook runs in the agent's terminal, which tells it (fresh, on every
+	// event) how to bring the agent's tab forward.
+	if t := terminal.Detect(os.Getenv); t != nil {
+		payload["mc_terminal"] = t
 	}
 	payload = claudecode.Minimize(payload)
 

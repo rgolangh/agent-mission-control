@@ -26,7 +26,7 @@ func Minimize(in map[string]any) map[string]any {
 	for _, k := range []string{
 		"session_id", "transcript_path", "cwd", "hook_event_name",
 		"source", "reason", "tool_name", "tool_use_id", "notification_type",
-		"mc_agent_pid",
+		"mc_agent_pid", "mc_terminal",
 	} {
 		if v, ok := in[k]; ok {
 			out[k] = v

@@ -2,10 +2,12 @@ package daemon
 
 import (
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
+	"github.com/rgolangh/agent-mission-control/internal/terminal"
 )
 
 func ev(src string, st adapter.Status, msg string, at time.Time) adapter.SourceEvent {
@@ -200,5 +202,71 @@ func TestApplyStoresCleanText(t *testing.T) {
 	}
 	if q := w.Pending[0].Questions[0]; q.Question != "go[2J?" || q.Options[1] != "no" {
 		t.Errorf("stored ask %+v", q)
+	}
+}
+
+func TestAttachClientsPointsPIDsAtTheClient(t *testing.T) {
+	s := NewStore()
+	server, client := os.Getpid(), os.Getppid()
+	e := ev("a", adapter.StatusRunning, "working", time.Now())
+	e.PID = server
+	s.Apply(e)
+	s.Bind("opencode:a", nil, "http://svc")
+	pids := func() []int { w, _ := s.Get("opencode:a"); return w.PIDs }
+
+	s.AttachClients("http://other", func(string, string) int { return client })
+	if p := pids(); len(p) == 0 || p[0] != server {
+		t.Fatalf("another origin's clients moved it: %v", p)
+	}
+	s.AttachClients("http://svc", func(sid, _ string) int {
+		if sid == "a" {
+			return client
+		}
+		return 0
+	})
+	if p := pids(); len(p) == 0 || p[0] != client {
+		t.Fatalf("pids = %v, want the client's chain", p)
+	}
+
+	// Further events from the server keep the client's chain.
+	e.Message = "still working"
+	s.Apply(e)
+	if p := pids(); len(p) == 0 || p[0] != client {
+		t.Fatalf("an event from the server reset pids to %v", p)
+	}
+
+	// The client went away: back to the server.
+	s.AttachClients("http://svc", func(string, string) int { return 0 })
+	if p := pids(); len(p) == 0 || p[0] != server {
+		t.Fatalf("pids = %v, want the server's chain again", p)
+	}
+}
+
+func TestApplyKeepsTheReportedTerminal(t *testing.T) {
+	s := NewStore()
+	kitty := &terminal.Terminal{Kind: "kitty", Address: "unix:@k", Target: "7"}
+	e := ev("a", adapter.StatusRunning, "working", time.Now())
+	e.PID, e.Terminal = os.Getpid(), kitty
+	s.Apply(e)
+	term := func() *terminal.Terminal { w, _ := s.Get("opencode:a"); return w.Terminal }
+	if got := term(); got == nil || *got != *kitty {
+		t.Fatalf("terminal = %+v", got)
+	}
+
+	// Events that don't report one keep it; malformed reports are refused.
+	e.Terminal, e.Message = nil, "still working"
+	s.Apply(e)
+	e.Terminal, e.Message = &terminal.Terminal{Kind: "kitty", Address: "--help", Target: "7"}, "and more"
+	s.Apply(e)
+	if got := term(); got == nil || *got != *kitty {
+		t.Fatalf("terminal = %+v, want it kept", got)
+	}
+
+	// Another process took the session over (resumed elsewhere): its tab is
+	// unknown until it reports one.
+	e.PID, e.Terminal, e.Message = os.Getppid(), nil, "resumed"
+	s.Apply(e)
+	if got := term(); got != nil {
+		t.Fatalf("terminal = %+v, want it dropped with the old process", got)
 	}
 }

@@ -16,6 +16,9 @@ import Quickshell
 //              ("a|b": several picks for a multi-select question)
 //   MC_TEST=states  check Api.daemonState's classification table, print
 //              "states: all passed" or the failures, and quit
+//   MC_TEST=terminal  likewise for Api.terminalFocus ("terminal: all passed")
+//   MC_FOCUS   press the terminal button of the first workflow that
+//              reported its terminal tab, via the widget
 //   MC_EXPECT_STATE  print FAIL and quit unless the daemon-down state is this
 //              (e.g. XDG_RUNTIME_DIR set to an empty dir: not-running).
 // qs exits 0 either way (Qt.exit has no receiver in Quickshell): grep.
@@ -53,6 +56,7 @@ ShellRoot {
         item.bar = fakeBar
         item.settings = { apiUrl: Quickshell.env("MC_URL") || "http://127.0.0.1:4200", notify: false }
         if (Quickshell.env("MC_TEST") === "states") { harness.checkStates(item.api); Qt.quit() }
+        if (Quickshell.env("MC_TEST") === "terminal") { harness.checkTerminal(item.api); Qt.quit() }
       }
     }
 
@@ -86,6 +90,29 @@ ShellRoot {
       console.log(failed ? failed + " failure(s)" : "states: all passed")
       return failed === 0
     }
+
+    // Same table as ui/gnome/test/model.test.js.
+    function checkTerminal(api) {
+      var kitty = ["kitten", "@", "--to", "unix:@k", "focus-window", "--match", "id:7"]
+      var cases = [
+        [{ kind: "kitty", address: "unix:@k", target: "7" }, kitty],
+        [{ kind: "kitty", address: "--help", target: "7" }, null],
+        [{ kind: "kitty", address: "unix:@k", target: "7 or 8" }, null],
+        [{ kind: "kitty", address: "unix:@k\n", target: "7" }, null],
+        [{ kind: "xterm", address: "unix:@k", target: "7" }, null],
+        [null, null],
+      ]
+      var failed = 0
+      for (var i = 0; i < cases.length; i++) {
+        var got = JSON.stringify(api.terminalFocus(cases[i][0]))
+        if (got !== JSON.stringify(cases[i][1])) {
+          failed++
+          console.log("FAIL terminal", JSON.stringify(cases[i][0]), "->", got)
+        }
+      }
+      console.log(failed ? failed + " failure(s)" : "terminal: all passed")
+      return failed === 0
+    }
     readonly property var w: loader.item
 
     Timer {
@@ -113,6 +140,11 @@ ShellRoot {
           w.api.answer(target.source_id, target.pending[0].id, choice, function(ok, err) {
             console.log("answer", choice, "->", ok ? "ok" : "error: " + err)
           })
+        }
+        if (Quickshell.env("MC_FOCUS")) {
+          var tab = w.api.workflows.filter(function(x) { return x.terminal })[0]
+          console.log("focus", tab ? tab.title + " -> " + JSON.stringify(w.api.terminalFocus(tab.terminal)) : "FAIL no workflow reported a terminal")
+          if (tab) w.focusTerminal(tab)
         }
         shot.start()
       }

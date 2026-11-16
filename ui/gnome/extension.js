@@ -381,7 +381,7 @@ class Indicator extends PanelMenu.Button {
     _workflowCardSignature(w) {
         return JSON.stringify([
             w.id, w.source_id, w.title, w.location, w.status, w.message,
-            w.stale, w.stale_reason, w.pids, w.pending, w.capabilities,
+            w.stale, w.stale_reason, w.pids, w.terminal, w.pending, w.capabilities,
         ]);
     }
 
@@ -561,7 +561,7 @@ class Indicator extends PanelMenu.Button {
                 child: new St.Icon({icon_name: 'utilities-terminal-symbolic'}),
             });
             focus.connect('clicked', () => {
-                if (this._focus(w.pids))
+                if (this._focus(w))
                     this.menu.close();
             });
             heading.add_child(focus);
@@ -829,18 +829,44 @@ class Indicator extends PanelMenu.Button {
 
     // Each workflow carries `pids`: the agent process and its ancestors
     // (agent → shell → terminal). The nearest one that owns a window is the
-    // agent's terminal.
-    _focus(pids) {
+    // agent's terminal. If its source reported the terminal tab it runs in
+    // (`terminal`), that tab is selected first.
+    _focus(w) {
         const windows = global.get_window_actors().map(a => a.meta_window);
-        for (const pid of pids) {
+        for (const pid of w.pids) {
             const win = windows.find(mw => mw.get_pid() === pid);
             if (win) {
+                this._focusTab(w.terminal);
                 Main.activateWindow(win);
                 return true;
             }
         }
         Main.notify('Agent Mission Control', 'No window found for that agent.');
         return false;
+    }
+
+    // Fixed argv (model.terminalFocus), never a shell string. Best effort: the
+    // window is activated either way.
+    _focusTab(terminal) {
+        const argv = model.terminalFocus(terminal);
+        const exe = argv && GLib.find_program_in_path(argv[0]);
+        if (!exe)
+            return;
+        try {
+            const proc = Gio.Subprocess.new([exe, ...argv.slice(1)],
+                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_PIPE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                try {
+                    const [, , stderr] = p.communicate_utf8_finish(res);
+                    if (!p.get_successful())
+                        log(`agent-mission-control: selecting the terminal tab failed: ${model.clean(stderr)}`);
+                } catch (e) {
+                    logError(e, 'agent-mission-control');
+                }
+            });
+        } catch (e) {
+            logError(e, 'agent-mission-control');
+        }
     }
 
     destroy() {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/rgolangh/agent-mission-control/internal/adapter"
 	"github.com/rgolangh/agent-mission-control/internal/procs"
+	"github.com/rgolangh/agent-mission-control/internal/terminal"
 )
 
 // Version is reported by GET /healthz; main sets it from its build version.
@@ -54,11 +55,13 @@ type Workflow struct {
 	StartedAt    time.Time            `json:"started_at"`
 	UpdatedAt    time.Time            `json:"updated_at"`
 	LastActivity time.Time            `json:"last_activity"`
-	PIDs         []int                `json:"pids,omitempty"` // the agent process and its ancestors, nearest first: a UI matches these to window PIDs to focus the terminal // last frame of any kind from the source, including streaming output
+	PIDs         []int                `json:"pids,omitempty"`     // the agent process and its ancestors, nearest first: a UI matches these to window PIDs to focus the terminal
+	Terminal     *terminal.Terminal   `json:"terminal,omitempty"` // the terminal tab the agent runs in, if its source reports one: a UI selects it after focusing the window
 	History      []Transition         `json:"history"`
 
 	input       adapter.Responder // how to push input back; nil until an adapter binds one
 	hung        bool              // stuck was set by FlagHung, so new activity undoes it
+	srcPID      int               // the process events come from; PIDs may instead start at a client of it (AttachClients)
 	cacheWarned bool
 }
 
@@ -179,8 +182,14 @@ func (s *Store) Apply(ev adapter.SourceEvent) bool {
 		w.TokenUsage = &usage
 		w.cacheWarned = false
 	}
-	if ev.PID > 0 && (len(w.PIDs) == 0 || w.PIDs[0] != ev.PID) {
+	if ev.PID > 0 && ev.PID != w.srcPID {
+		w.srcPID = ev.PID
 		w.PIDs = procs.Ancestors(ev.PID)
+		w.Terminal = nil // another process (a resumed session) may run in another tab
+	}
+	if ev.Terminal.Valid() {
+		t := *ev.Terminal
+		w.Terminal = &t
 	}
 	if ev.Ask != nil {
 		w.setAsk(*ev.Ask)
@@ -459,6 +468,28 @@ func (s *Store) MarkStale(origin, reason string) {
 	for _, w := range s.m {
 		if w.Origin == origin {
 			w.Stale, w.StaleReason = true, reason
+		}
+	}
+}
+
+// AttachClients points the PIDs of origin's workflows at the client process
+// each is open in, as pidFor reports it (0 for none), instead of at the
+// server that reports it. A shared server runs outside any terminal, so only
+// a client's ancestry leads to a window. Workflows pidFor has no client for
+// fall back to the server's.
+func (s *Store) AttachClients(origin string, pidFor func(sourceID, location string) int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, w := range s.m {
+		if w.Origin != origin || w.srcPID <= 0 {
+			continue
+		}
+		pid := pidFor(w.SourceID, w.Location)
+		if pid <= 0 {
+			pid = w.srcPID
+		}
+		if len(w.PIDs) == 0 || w.PIDs[0] != pid {
+			w.PIDs = procs.Ancestors(pid)
 		}
 	}
 }
