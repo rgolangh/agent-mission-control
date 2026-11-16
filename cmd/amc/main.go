@@ -127,6 +127,7 @@ func serve(args []string) error {
 	discover := fs.Bool("discover", false, "automatically discover local OpenCode servers and the default Codex app-server socket (Linux)")
 	discoverEvery := fs.Duration("discover-interval", 3*time.Second, "how often -discover rescans")
 	hungAfter := fs.Duration("hung-after", 15*time.Minute, "flag a running workflow as stuck after this long with no activity at all (0 disables)")
+	openCodeIdleAfter := fs.Duration("opencode-idle-after", time.Hour, "remove a completed OpenCode workflow after this long with no activity (0 keeps them)")
 	logText := fs.Bool("log-text", false, "also log agent-written text (messages, titles); off by default because the journal persists it")
 	codexSocket := fs.String("codex-socket", "", "watch a shared Codex app-server Unix socket (or 'default')")
 	cacheLifetime := fs.Duration("cache-lifetime", 30*time.Minute, "assumed cache lifetime for warning estimates")
@@ -362,6 +363,25 @@ func serve(args []string) error {
 				case now := <-tick.C:
 					for _, id := range store.FlagHung(now, *hungAfter) {
 						logf("%s stuck — no activity for over %s", id, *hungAfter)
+					}
+				}
+			}
+		}()
+	}
+
+	// OpenCode has no per-session "client attached" signal, so finished
+	// sessions would otherwise pile up while their server keeps running.
+	if *openCodeIdleAfter > 0 {
+		go func() {
+			tick := time.NewTicker(time.Minute)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case now := <-tick.C:
+					for _, id := range store.PruneIdle("opencode", now, *openCodeIdleAfter) {
+						logf("%s expired completed workflow after %s idle", id, *openCodeIdleAfter)
 					}
 				}
 			}
