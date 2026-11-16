@@ -98,12 +98,16 @@ Item {
 
   // Each workflow carries `pids`: the agent process and its ancestors
   // (agent → shell → terminal emulator). The nearest one that owns a
-  // Hyprland window is the agent's terminal.
+  // Hyprland window is the agent's terminal. If its source reported the
+  // terminal tab it runs in (`terminal`), that tab is selected first.
   property var _focusChain: []
+  property var _focusTab: null
 
-  function focusTerminal(pids) {
+  function focusTerminal(workflow) {
+    var pids = workflow.pids
     if (!pids || !pids.length || focusProc.running) return
     _focusChain = pids
+    _focusTab = api.terminalFocus(workflow.terminal)
     focusProc.running = true
   }
 
@@ -117,6 +121,7 @@ Item {
         for (var i = 0; i < root._focusChain.length; i++) {
           for (var j = 0; j < clients.length; j++) {
             if (clients[j].pid === root._focusChain[i]) {
+              if (root._focusTab) Quickshell.execDetached(root._focusTab)
               Quickshell.execDetached(["hyprctl", "dispatch", "focuswindow", "address:" + clients[j].address])
               root.close()
               return
@@ -639,7 +644,7 @@ Item {
           label: "\uf120" // terminal
           implicitWidth: visible ? 26 : 0
           implicitHeight: 20
-          onActivated: root.focusTerminal(wcard.workflow.pids)
+          onActivated: root.focusTerminal(wcard.workflow)
         }
         Text {
           textFormat: Text.PlainText // agent text: never HTML

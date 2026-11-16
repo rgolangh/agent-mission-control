@@ -136,6 +136,17 @@ QtObject {
       action: { label: "Start daemon", kind: "start", arg: start } }
   }
 
+  // The command that selects a workflow's terminal tab, from the terminal
+  // its source reported (the daemon validated it; checked again, as it ends
+  // up in argv), or null. Mirrors terminalFocus in ui/gnome/model.js (tested
+  // there in gjs, and here by MC_TEST=terminal in test/shell.qml).
+  function terminalFocus(t) {
+    if (!t) return null
+    if (t.kind === "kitty" && /^unix:[\/@][^\x00-\x1f\x7f]+$/.test(t.address) && /^[1-9][0-9]*$/.test(t.target))
+      return ["kitten", "@", "--to", t.address, "focus-window", "--match", "id:" + t.target]
+    return null
+  }
+
   function request(method, path, body, done) {
     if (!token) { done(0, null); return }
     var xhr = new XMLHttpRequest()

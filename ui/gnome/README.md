@@ -7,8 +7,9 @@ A top-bar indicator for GNOME Shell 45 and later:
   you**, **Waiting**, and **Running** views (buttons, or `Ctrl+1`–`Ctrl+4`;
   `Ctrl+R` refreshes). All is the default, so idle and completed workflows
   remain visible. Answer a question with one click, type a reply or
-  follow-up, or jump to the agent's terminal window. Running workflows show
-  a three-dot Larson scanner in their cards. While the menu is open it
+  follow-up, or jump to the agent's terminal window (and, in kitty, its tab:
+  see [Jumping to the agent's tab](../../README.md#jumping-to-the-agents-tab)).
+  Running workflows show a three-dot Larson scanner in their cards. While the menu is open it
   updates in place, and updates preserve in-progress reply text and caret
   position, as well as multi-select choices.
 - **Global shortcut:** `<Super><Alt>m` toggles the menu (from the extension's

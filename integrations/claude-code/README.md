@@ -12,7 +12,8 @@ Claude asked you, and done/stuck judgment from `Stop`'s
 
 Claude Code sessions are **observe-only** in agent-mission-control. There is no API
 to type into a Claude Code session, so you answer in the terminal (the
-dashboard can focus it).
+dashboard can focus it, and in kitty select its tab: the hook reports which
+one, see [Jumping to the agent's tab](../../README.md#jumping-to-the-agents-tab)).
 
 ## Install (no marketplace needed: a "skills-dir" plugin)
 

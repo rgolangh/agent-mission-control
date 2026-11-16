@@ -77,6 +77,15 @@ eq(ds({status: 0, token: false, installed: false, unit: false}).hint.includes(m.
 eq(ds({status: 401, token: true}).hint.includes(local.tokenPath), true, 'unauthorized: names the token file');
 eq(ds({status: 0, token: false}).action.arg, 'systemctl --user start agent-mission-control.service', 'start command');
 
+// Same table as terminalFocus in ui/omarchy/test/shell.qml.
+const kitty = ['kitten', '@', '--to', 'unix:@k', 'focus-window', '--match', 'id:7'];
+eq(m.terminalFocus({kind: 'kitty', address: 'unix:@k', target: '7'}), kitty, 'terminal: kitty window by id');
+eq(m.terminalFocus({kind: 'kitty', address: '--help', target: '7'}), null, 'terminal: address must be a unix socket');
+eq(m.terminalFocus({kind: 'kitty', address: 'unix:@k', target: '7 or 8'}), null, 'terminal: numeric target only');
+eq(m.terminalFocus({kind: 'kitty', address: 'unix:@k\n', target: '7'}), null, 'terminal: no control characters');
+eq(m.terminalFocus({kind: 'xterm', address: 'unix:@k', target: '7'}), null, 'terminal: unknown kind');
+eq(m.terminalFocus(null), null, 'terminal: none reported');
+
 print(failed ? `${failed} failure(s)` : 'model: all passed');
 if (failed)
     imports.system.exit(1);

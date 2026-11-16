@@ -59,7 +59,8 @@ Ways to look at it:
 - **MCP server:** for an orchestrating agent.
 - **Desktop UI:** a widget for [Omarchy](https://omarchy.org)'s shell, or a
   [GNOME Shell extension](ui/gnome/README.md). Both have an indicator, the
-  workflow list, notifications, and a jump to the agent's terminal.
+  workflow list, notifications, and a jump to the agent's terminal (see
+  [Jumping to the agent's tab](#jumping-to-the-agents-tab)).
 
 <img src="docs/demo/promo.gif" width="720" alt="Three agents working; one asks which session store to use, the Omarchy bar icon turns amber and notifies, the panel opens and the answer Redis is picked, then all three finish and the bar goes calm">
 
@@ -69,6 +70,30 @@ Ways to look at it:
 (no LLM). They read how the turn ended: errors, finish reason, a closing
 question or an optional offer, "I couldn't…" blockers, open todos. A session
 with no activity at all for 15 minutes is flagged as hung.
+
+### Jumping to the agent's tab
+
+The terminal button raises the window the agent runs in. For OpenCode's
+shared background service, that is the window of the TUI showing the
+session, which the daemon finds among the TUIs connected to the service. If
+two TUIs were started in the same directory without `-s`, it can't tell them
+apart.
+
+A tabbed terminal runs all of its tabs in one process, so raising the window
+may still show another tab. Where the agent reports from inside its
+terminal (the Claude Code hook does, on every event), it also says which
+tab, and the button selects it. Only kitty is supported so far, and only when
+its remote control listens on a socket. In `kitty.conf`:
+
+```
+allow_remote_control socket-only
+listen_on unix:${XDG_RUNTIME_DIR}/kitty-{kitty_pid}
+```
+
+Only the kind of terminal, its control socket and the tab's id are kept,
+and they are checked before they are stored or used. OpenCode sessions
+don't report a tab yet: their events come from the service, not from the
+terminal.
 
 ## Requirements
 

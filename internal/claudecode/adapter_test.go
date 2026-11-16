@@ -316,3 +316,13 @@ func TestLocalSlashCommandsAreNotTurns(t *testing.T) {
 		t.Errorf("a slash command must not open a new, unanswered turn: %+v", got)
 	}
 }
+
+func TestTerminalFromHookReachesTheEvent(t *testing.T) {
+	in := map[string]any{"session_id": "s1", "hook_event_name": "UserPromptSubmit", "prompt": "hi",
+		"mc_terminal": map[string]any{"kind": "kitty", "address": "unix:@k", "target": "7"}}
+	b, _ := json.Marshal(Minimize(in))
+	ev, ok := New().Normalize(hook(t, string(b)))
+	if !ok || ev.Terminal == nil || ev.Terminal.Kind != "kitty" || ev.Terminal.Address != "unix:@k" || ev.Terminal.Target != "7" {
+		t.Fatalf("terminal = %+v", ev.Terminal)
+	}
+}
