@@ -194,6 +194,10 @@ MCP (e.g. Claude Code): `claude mcp add agent-mission-control -- amc mcp`.
 Tools: `list_workflows`, `get_workflow`, `answer_workflow`, `resolve_permission`
 (`once` / `reject` only), `send_to_workflow`.
 
+To run several agents on one goal, give a single orchestrating agent amc's MCP
+server. It starts the workers and supervises them through amc. The tested
+recipe is in [docs/orchestration.md](docs/orchestration.md).
+
 ## Security
 
 agent-mission-control can approve agent permissions, which run commands as you, so
